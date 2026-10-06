@@ -63,6 +63,13 @@ pub fn build_args(cfg: &TunnelConfig) -> Vec<String> {
             "tunnel".to_string(),
             "--url".to_string(),
             format!("http://{}:{}", cfg.local_host, cfg.local_port),
+            // QUIC (UDP 443) is blocked on many networks (verified live:
+            // auto mode keeps retrying and edge answers 530) while the
+            // HTTP/2 fallback runs over TCP 443 almost everywhere.
+            // cloudflared's own precheck suggests http2 in that case, so
+            // default to it for reliability.
+            "--protocol".to_string(),
+            "http2".to_string(),
             "--no-autoupdate".to_string(),
         ],
         Backend::Bore => vec![
@@ -583,6 +590,8 @@ mod tests {
                 "tunnel",
                 "--url",
                 "http://127.0.0.1:8080",
+                "--protocol",
+                "http2",
                 "--no-autoupdate"
             ]
         );

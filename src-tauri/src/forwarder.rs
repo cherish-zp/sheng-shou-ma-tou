@@ -1034,4 +1034,169 @@ mod tests {
         assert_eq!(fwd.bytes_in(), 0);
         fwd.stop().await;
     }
+
+    // --- real-network end-to-end ---------------------------------------------
+
+    /// A real HTTP server that answers every request with a marker body.
+    async fn http_marker_server(mark: String) -> (u16, tokio::task::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let handle = tokio::spawn(async move {
+            while let Ok((sock, _)) = listener.accept().await {
+                let body = format!("PIER-E2E-MARK-{mark}");
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                tokio::spawn(async move {
+                    let mut sock = sock;
+                    // Drain the request head so the client sees a clean close.
+                    let mut buf = [0u8; 4096];
+                    let _ = tokio::io::AsyncReadExt::read(&mut sock, &mut buf).await;
+                    let _ = tokio::io::AsyncWriteExt::write_all(&mut sock, resp.as_bytes()).await;
+                });
+            }
+        });
+        (port, handle)
+    }
+
+    /// Fetch (or reuse) a cloudflared binary under /tmp for e2e testing.
+    async fn ensure_cloudflared() -> std::path::PathBuf {
+        let dir = std::path::PathBuf::from("/tmp/pier-e2e-cloudflared");
+        let bin = dir.join("cloudflared");
+        if bin.is_file() {
+            return bin;
+        }
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+        let url = if cfg!(target_os = "macos") {
+            if cfg!(target_arch = "aarch64") {
+                "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz"
+            } else {
+                "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64.tgz"
+            }
+        } else if cfg!(target_os = "windows") {
+            "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
+        } else if cfg!(target_arch = "aarch64") {
+            "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64.tgz"
+        } else {
+            "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.tgz"
+        };
+        let resp = reqwest::Client::new()
+            .get(url)
+            .header("User-Agent", concat!("Pier/", env!("CARGO_PKG_VERSION")))
+            .timeout(Duration::from_secs(120))
+            .send()
+            .await
+            .expect("download cloudflared");
+        let bytes = resp.error_for_status().unwrap().bytes().await.unwrap();
+        if url.ends_with(".tgz") {
+            let gz = flate2::read::GzDecoder::new(&bytes[..]);
+            let mut ar = tar::Archive::new(gz);
+            ar.unpack(&dir).expect("unpack cloudflared archive");
+        } else {
+            tokio::fs::write(&bin, &bytes).await.unwrap();
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            tokio::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755))
+                .await
+                .unwrap();
+        }
+        assert!(bin.is_file(), "cloudflared was not extracted");
+        bin
+    }
+
+    /// REAL-NETWORK end-to-end: forwarder -> cloudflared quick tunnel ->
+    /// public trycloudflare.com URL -> response from the local service.
+    /// Not part of CI; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore = "real network: downloads cloudflared and opens a public quick tunnel"]
+    async fn real_cloudflared_quick_tunnel_end_to_end() {
+        use tokio::io::AsyncBufReadExt;
+
+        let mark = uuid::Uuid::new_v4().simple().to_string()[..12].to_string();
+        let (upstream_port, server) = http_marker_server(mark.clone()).await;
+
+        let cfg = cfg(TunnelType::Http, upstream_port);
+        let (fwd, fwd_port) = Forwarder::spawn(None, cfg, None).await.unwrap();
+
+        let cf_bin = ensure_cloudflared().await;
+        let mut child = tokio::process::Command::new(&cf_bin)
+            .args([
+                "tunnel",
+                "--url",
+                &format!("http://127.0.0.1:{fwd_port}"),
+                // Same rationale as providers::build_args: QUIC is blocked on
+                // some networks and cloudflared's auto mode does not degrade.
+                "--protocol",
+                "http2",
+                "--no-autoupdate",
+            ])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("spawn cloudflared");
+        let stderr = child.stderr.take().unwrap();
+        let mut lines = tokio::io::BufReader::new(stderr).lines();
+
+        // Wait (up to 45s) for the quick-tunnel URL on cloudflared's stderr.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(45);
+        let mut public_url = None;
+        while tokio::time::Instant::now() < deadline {
+            match timeout(Duration::from_secs(5), lines.next_line()).await {
+                Ok(Ok(Some(line))) => {
+                    if let Some(url) = crate::providers::parse_public_endpoint(
+                        crate::models::Backend::Cloudflare,
+                        &line,
+                    ) {
+                        public_url = Some(url);
+                        break;
+                    }
+                }
+                _ => continue,
+            }
+        }
+        let public_url = public_url.expect("cloudflared did not report a quick tunnel URL");
+        println!("public URL: {public_url}");
+
+        // The edge needs a few seconds to become reachable; retry.
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(15))
+            .build()
+            .unwrap();
+        let mut last_err = String::new();
+        let mut body = String::new();
+        for _ in 0..10 {
+            match client.get(&public_url).send().await {
+                Ok(resp) => match resp.error_for_status() {
+                    Ok(r) => {
+                        body = r.text().await.unwrap_or_default();
+                        if body.contains(&format!("PIER-E2E-MARK-{mark}")) {
+                            break;
+                        }
+                        last_err = format!("unexpected body: {body}");
+                    }
+                    Err(e) => last_err = e.to_string(),
+                },
+                Err(e) => last_err = e.to_string(),
+            }
+            tokio::time::sleep(Duration::from_secs(4)).await;
+        }
+        assert!(
+            body.contains(&format!("PIER-E2E-MARK-{mark}")),
+            "public round-trip failed: {last_err}"
+        );
+
+        let stats_in = fwd.bytes_in();
+        let stats_out = fwd.bytes_out();
+        println!("forwarded bytes: in={stats_in} out={stats_out}");
+        assert!(stats_in > 0, "forwarder counted no inbound bytes");
+        assert!(stats_out > 0, "forwarder counted no outbound bytes");
+
+        let _ = child.kill().await;
+        server.abort();
+        fwd.stop().await;
+    }
 }
