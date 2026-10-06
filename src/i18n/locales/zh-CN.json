@@ -5,6 +5,7 @@
   },
   "nav": {
     "tunnels": "隧道",
+    "servers": "服务器",
     "settings": "设置"
   },
   "common": {
@@ -39,6 +40,7 @@
   "card": {
     "backendCloudflare": "Cloudflare",
     "backendBore": "bore",
+    "backendFrp": "frp",
     "waitingUrl": "等待分配公网地址…",
     "noUrl": "未获得公网地址",
     "traffic": "流量",
@@ -72,8 +74,23 @@
     "localHost": "本地地址",
     "localPort": "本地端口",
     "portPlaceholder": "例如 3000",
+    "channel": "通道",
+    "channelQuick": "快速通道",
+    "channelSelfHosted": "自建服务器",
+    "server": "服务器",
+    "serverPlaceholder": "选择已部署的服务器",
+    "serverRequired": "请选择一台服务器",
+    "subdomain": "子域名",
+    "subdomainPlaceholder": "选填，完整地址 {{name}}.{{host}}",
+    "subdomainPlaceholderNoHost": "选填，例如 myapp",
+    "remotePort": "远端端口",
+    "remotePortPlaceholder": "例如 6000",
+    "remotePortHint": "留空则由服务端在可用范围内自动分配，结果不可控，建议指定",
+    "remotePortRequired": "自建 TCP 通道必须指定远端端口",
     "backendMappingHttp": "将通过 Cloudflare 快速隧道转发（无需注册账号）",
     "backendMappingTcp": "将通过 bore 公网中继转发（无需注册账号）",
+    "backendMappingFrp": "将通过你的服务器「{{name}}」转发（frp）",
+    "backendMappingFrpGeneric": "将通过自建 frp 服务器转发",
     "submitCreate": "创建并启动",
     "submitEdit": "保存修改",
     "creating": "创建中…",
@@ -91,6 +108,240 @@
   "qr": {
     "title": "扫码访问",
     "description": "用手机扫描二维码打开该地址"
+  },
+  "servers": {
+    "title": "服务器",
+    "subtitle": "把你的 VPS 变成专属隧道服务器",
+    "count": "共 {{n}} 台服务器",
+    "add": "添加服务器",
+    "loadFailed": "加载服务器列表失败",
+    "emptyTitle": "还没有服务器",
+    "emptyDescription": "添加一台自己的 VPS，Pier 会自动在上面部署 frps，让它成为你的专属隧道服务器。",
+    "emptyCta": "添加第一台服务器",
+    "statusRunning": "frps 运行中",
+    "statusDeployed": "frps 已部署（未运行）",
+    "statusNotDeployed": "未部署",
+    "frpsVersion": "frps v{{version}}",
+    "card": {
+      "deploy": "部署 / 升级",
+      "viewProgress": "查看部署进度",
+      "test": "测试连接",
+      "testing": "测试中…",
+      "testOk": "连接正常",
+      "testFailed": "连接异常",
+      "undeploy": "卸载",
+      "delete": "删除",
+      "more": "更多操作",
+      "undeployTitle": "卸载 frps？",
+      "undeployDescription": "将停止并移除服务器上的 frps 服务与配置，通过该服务器发布的隧道会全部中断。",
+      "undeploySuccess": "frps 已卸载",
+      "undeployFailed": "卸载失败",
+      "deleteTitle": "删除服务器记录？",
+      "deleteDescription": "仅移除本地记录「{{name}}」，不会影响服务器上已部署的服务。",
+      "deleteSuccess": "已删除「{{name}}」",
+      "deleteFailed": "删除失败",
+      "subdomainHost": "泛域名",
+      "testDetail": "检测结果"
+    },
+    "form": {
+      "title": "添加服务器",
+      "description": "填写一台可以通过 SSH 登录的服务器，Pier 会在其上部署并管理 frps。",
+      "name": "名称",
+      "namePlaceholder": "选填，例如「我的 VPS」",
+      "host": "主机地址",
+      "hostPlaceholder": "IP 或域名",
+      "port": "SSH 端口",
+      "username": "用户名",
+      "usernamePlaceholder": "通常为 root",
+      "authKind": "认证方式",
+      "authPassword": "密码",
+      "authKeypath": "私钥文件路径",
+      "secretPassword": "SSH 密码",
+      "secretKeypath": "私钥路径",
+      "secretKeypathPlaceholder": "例如 ~/.ssh/id_ed25519",
+      "advanced": "高级选项",
+      "frpsBindPort": "frp 连接端口",
+      "frpsVhostHttpPort": "HTTP 穿透端口",
+      "frpsVhostHttpsPort": "HTTPS 穿透端口",
+      "frpsDashboardPort": "管理面板端口",
+      "subdomainHost": "泛域名",
+      "subdomainHostPlaceholder": "例如 tunnel.example.com",
+      "subdomainHostHint": "需将 *.{{host}} 的 A 记录指向此服务器后，才能使用子域名模式",
+      "submit": "添加",
+      "submitting": "添加中…",
+      "hostRequired": "请输入主机地址",
+      "usernameRequired": "请输入用户名",
+      "secretRequired": "请输入密码或私钥路径",
+      "portRequired": "请输入 1 - 65535 之间的端口号",
+      "success": "服务器已添加，可以直接部署了",
+      "failed": "添加服务器失败"
+    }
+  },
+  "deploy": {
+    "title": "部署 frps",
+    "subtitle": "正在配置「{{name}}」",
+    "runningHint": "首次部署约需 1-2 分钟。可以点击「后台运行」最小化窗口，部署会继续进行。",
+    "background": "后台运行",
+    "steps": {
+      "connect": "连接服务器",
+      "probe": "环境探测",
+      "ports": "端口预检",
+      "download": "下载 frps",
+      "config": "写入配置",
+      "systemd": "安装系统服务",
+      "service": "安装系统服务",
+      "firewall": "防火墙放行",
+      "verify": "验证部署"
+    },
+    "successTitle": "部署完成",
+    "successDescription": "frps 已在服务器上运行，现在可以创建指向它的隧道了。",
+    "portsTitle": "端口信息",
+    "portBind": "frp 连接端口",
+    "portVhostHttp": "HTTP 穿透端口",
+    "portVhostHttps": "HTTPS 穿透端口",
+    "portDashboard": "管理面板端口",
+    "tokenLabel": "frps token",
+    "failedTitle": "部署失败",
+    "retry": "重试",
+    "done": "完成"
+  },
+  "import": {
+    "button": "导入",
+    "title": "导入 frpc 配置",
+    "description": "粘贴 frpc 配置（支持 TOML / INI），Pier 会解析出可导入的隧道。",
+    "placeholder": "在此粘贴 frpc.toml 或 frpc.ini 的内容…",
+    "targetServer": "目标服务器",
+    "noServer": "不指定服务器",
+    "noServerHint": "未选择服务器时，导入的隧道将使用快速通道",
+    "previewTitle": "解析出 {{n}} 条隧道",
+    "colName": "名称",
+    "colType": "类型",
+    "colLocal": "本地端口",
+    "colRemote": "远端 / 子域名",
+    "submit": "导入 {{n}} 条隧道",
+    "importing": "导入中…",
+    "parseButton": "解析",
+    "emptyText": "请先粘贴配置内容",
+    "parseFailed": "未能解析出可导入的隧道",
+    "parseFailedDescription": "请确认粘贴的是完整有效的 frpc 配置",
+    "success": "已导入 {{n}} 条隧道",
+    "partial": "导入完成：成功 {{ok}} 条，失败 {{failed}} 条",
+    "importFailed": "导入隧道失败"
+  },
+  "diagnosis": {
+    "action": "诊断",
+    "diagnosing": "诊断中…",
+    "rerun": "重新诊断",
+    "collapse": "收起诊断",
+    "detailLabel": "原始日志",
+    "suggestionsLabel": "建议操作",
+    "actionFailed": "诊断失败",
+    "code": {
+      "allHealthy": {
+        "title": "一切正常",
+        "detail": "诊断未发现异常，隧道配置与连接状态正常。",
+        "suggestions": [
+          "如果隧道仍未恢复，请尝试停止后重新启动",
+          "查看运行日志确认是否还有偶发错误"
+        ]
+      },
+      "tokenMismatch": {
+        "title": "Token 不匹配",
+        "detail": "本地 frpc 携带的 token 与服务器 frps 配置不一致，服务端拒绝了本次连接。",
+        "suggestions": [
+          "在服务器页对该服务器执行「部署 / 升级」，重新生成 token 后再启动隧道",
+          "如手动改过服务器配置，请核对 frpc 与服务器 frps 的 token 字段是否完全一致"
+        ]
+      },
+      "authFailed": {
+        "title": "SSH 认证失败",
+        "detail": "连接服务器时的身份验证被拒绝。",
+        "suggestions": [
+          "确认用户名与密码 / 私钥路径填写正确",
+          "使用私钥登录时，确认对应公钥已写入服务器的 ~/.ssh/authorized_keys",
+          "在终端执行 ssh 用户名@服务器地址，验证能否正常登录"
+        ]
+      },
+      "versionMismatch": {
+        "title": "frpc 与 frps 版本不匹配",
+        "detail": "客户端与服务端的 frp 版本差异过大，可能导致协议不兼容。",
+        "suggestions": [
+          "对服务器执行「部署 / 升级」，将 frps 更新到与 frpc 匹配的版本",
+          "在「设置 → 引擎」中重装 frpc 引擎，使两端版本一致"
+        ]
+      },
+      "portConflict": {
+        "title": "端口被占用",
+        "detail": "frps 需要监听的端口在服务器上已被其他进程占用。",
+        "suggestions": [
+          "登录服务器执行 ss -tlnp | grep <端口> 查看占用进程",
+          "在添加服务器的高级选项中修改 frps 端口后重新部署",
+          "若为旧 frps 残留，先「卸载」再重新「部署」清理干净"
+        ]
+      },
+      "connectionRefused": {
+        "title": "连接被拒绝",
+        "detail": "目标端口没有程序监听，或被防火墙拦截。",
+        "suggestions": [
+          "检查服务器防火墙 / 云安全组是否放行 TCP 7000（frp 连接端口）",
+          "确认 frps 已在服务器上运行：执行「部署 / 升级」或「测试连接」",
+          "确认隧道使用的服务器地址与端口填写正确"
+        ]
+      },
+      "connectionTimeout": {
+        "title": "连接超时",
+        "detail": "与服务器建立连接时超时，通常是网络不可达、防火墙丢包或服务器离线。",
+        "suggestions": [
+          "确认服务器在线且网络可达：ping <服务器地址>",
+          "检查服务器防火墙 / 云安全组是否放行 TCP 7000（frp 连接端口）",
+          "若服务器在国内境外线路不稳，稍后将由 Pier 自动重连"
+        ]
+      },
+      "dnsFailed": {
+        "title": "域名解析失败",
+        "detail": "无法解析服务器地址或子域名对应的 IP。",
+        "suggestions": [
+          "在终端执行 nslookup <域名> 确认解析结果",
+          "检查服务器的 A 记录是否指向正确的公网 IP",
+          "使用自建服务器时，确认泛域名 *.subdomainHost 已解析到服务器"
+        ]
+      },
+      "localServiceDown": {
+        "title": "本地服务不可达",
+        "detail": "隧道转发的本地地址上没有服务在监听。",
+        "suggestions": [
+          "确认本地服务已启动，在终端执行 curl http://127.0.0.1:<端口> 验证",
+          "检查隧道的本地地址与端口配置是否正确",
+          "若服务只绑定在特定网卡，尝试把本地地址改为 127.0.0.1"
+        ]
+      },
+      "binaryMissing": {
+        "title": "frpc 未安装",
+        "detail": "本机缺少 frpc 引擎，无法建立 frp 隧道。",
+        "suggestions": [
+          "前往「设置 → 引擎」安装 frpc",
+          "安装完成后重新启动该隧道"
+        ]
+      },
+      "remoteServerUnreachable": {
+        "title": "服务器不可达",
+        "detail": "无法与服务器建立网络连接。",
+        "suggestions": [
+          "确认服务器 IP / 主机名与 SSH 端口填写正确",
+          "检查服务器防火墙 / 云安全组是否放行 SSH 端口（默认 22）",
+          "在终端执行 ping <服务器地址> 验证网络连通性"
+        ]
+      },
+      "genericError": {
+        "title": "隧道异常",
+        "detail": "隧道出现了无法自动归类的问题。",
+        "suggestions": [
+          "查看运行日志获取详细错误信息",
+          "停止后重新启动该隧道",
+          "若反复出现，尝试对服务器重新「部署 / 升级」"
+        ]
+      }
+    }
   },
   "settings": {
     "title": "设置",
@@ -111,6 +362,8 @@
     "engineCloudflareDescription": "cloudflared，用于 HTTP 快速隧道",
     "engineBore": "bore 引擎",
     "engineBoreDescription": "bore，用于 TCP 隧道",
+    "engineFrp": "frpc 引擎",
+    "engineFrpDescription": "frpc，用于连接自建 frp 服务器",
     "installed": "已安装",
     "notInstalled": "未安装",
     "install": "安装",

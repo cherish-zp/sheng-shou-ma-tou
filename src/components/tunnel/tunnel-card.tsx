@@ -7,12 +7,15 @@ import {
   CircleAlert,
   Copy,
   Ellipsis,
+  LoaderCircle,
   Pencil,
   ScrollText,
+  Stethoscope,
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { DiagnosisCard } from "@/components/tunnel/diagnosis-card";
 import { QrPopover } from "@/components/tunnel/qr-popover";
 import { StatusDot } from "@/components/status-dot";
 import { Badge } from "@/components/ui/badge";
@@ -40,7 +43,7 @@ import { api } from "@/lib/tauri";
 import { cn, copyText, errorMessage, formatBytes, formatDateTime } from "@/lib/utils";
 import { mergeState } from "@/store/tunnel-store";
 import i18n from "@/i18n";
-import type { TunnelConfig, TunnelState } from "@/types/tunnel";
+import type { Diagnosis, TunnelConfig, TunnelState } from "@/types/tunnel";
 
 interface TunnelCardProps {
   tunnel: TunnelConfig;
@@ -56,6 +59,9 @@ export function TunnelCard({ tunnel, state, onEdit, onShowLogs, onDelete }: Tunn
   const { t } = useTranslation();
   const [busy, setBusy] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [diagnosing, setDiagnosing] = useState(false);
+  const [diagnosis, setDiagnosis] = useState<Diagnosis | null>(null);
+  const [diagnosisOpen, setDiagnosisOpen] = useState(false);
 
   const status = state?.status ?? "stopped";
   const publicUrl = state?.publicUrl;
@@ -101,6 +107,19 @@ export function TunnelCard({ tunnel, state, onEdit, onShowLogs, onDelete }: Tunn
     else toast.error(t("common.copyFailed"));
   }
 
+  async function handleDiagnose() {
+    setDiagnosing(true);
+    try {
+      const result = await api.diagnoseTunnel(tunnel.id);
+      setDiagnosis(result);
+      setDiagnosisOpen(true);
+    } catch (error) {
+      toast.error(t("diagnosis.actionFailed"), { description: errorMessage(error) });
+    } finally {
+      setDiagnosing(false);
+    }
+  }
+
   return (
     <Card
       className={cn(
@@ -121,7 +140,9 @@ export function TunnelCard({ tunnel, state, onEdit, onShowLogs, onDelete }: Tunn
           <Badge variant="outline" className="text-[11px] text-muted-foreground">
             {tunnel.backend === "cloudflare"
               ? t("card.backendCloudflare")
-              : t("card.backendBore")}
+              : tunnel.backend === "bore"
+                ? t("card.backendBore")
+                : t("card.backendFrp")}
           </Badge>
 
           <div className="ml-auto flex items-center gap-2">
@@ -236,6 +257,47 @@ export function TunnelCard({ tunnel, state, onEdit, onShowLogs, onDelete }: Tunn
               {t("card.viewLogs")}
             </span>
           </button>
+        ) : null}
+
+        {/* Diagnosis (error state only) */}
+        {status === "error" ? (
+          <>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={diagnosing}
+                onClick={() => void handleDiagnose()}
+              >
+                {diagnosing ? (
+                  <>
+                    <LoaderCircle className="size-3.5 animate-spin" />
+                    {t("diagnosis.diagnosing")}
+                  </>
+                ) : (
+                  <>
+                    <Stethoscope className="size-3.5" />
+                    {diagnosis && diagnosisOpen
+                      ? t("diagnosis.rerun")
+                      : t("diagnosis.action")}
+                  </>
+                )}
+              </Button>
+              {diagnosis && diagnosisOpen ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-muted-foreground"
+                  onClick={() => setDiagnosisOpen(false)}
+                >
+                  {t("diagnosis.collapse")}
+                </Button>
+              ) : null}
+            </div>
+            {diagnosis && diagnosisOpen ? (
+              <DiagnosisCard diagnosis={diagnosis} />
+            ) : null}
+          </>
         ) : null}
       </CardContent>
 

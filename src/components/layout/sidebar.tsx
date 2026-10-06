@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { NavLink } from "react-router-dom";
-import { Home, Moon, Settings, Sun } from "lucide-react";
+import { Home, Moon, Server, Settings, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 
 import { PierLogo } from "@/components/pier-logo";
@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
   { to: "/", icon: Home, labelKey: "nav.tunnels" },
+  { to: "/servers", icon: Server, labelKey: "nav.servers" },
   { to: "/settings", icon: Settings, labelKey: "nav.settings" },
 ] as const;
 

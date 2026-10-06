@@ -49,6 +49,8 @@ export interface BinaryInfo {
 export interface BinaryStatus {
   cloudflare: BinaryInfo;
   bore: BinaryInfo;
+  /** Optional: only reported once the backend manages frpc locally (M2+). */
+  frp?: BinaryInfo;
 }
 
 // ---------------------------------------------------------------------------

@@ -5,6 +5,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { HomePage } from "@/pages/home-page";
+import { ServersPage } from "@/pages/servers-page";
 import { SettingsPage } from "@/pages/settings-page";
 
 export default function App() {
@@ -15,6 +16,7 @@ export default function App() {
           <Routes>
             <Route element={<AppLayout />}>
               <Route index element={<HomePage />} />
+              <Route path="/servers" element={<ServersPage />} />
               <Route path="/settings" element={<SettingsPage />} />
             </Route>
           </Routes>

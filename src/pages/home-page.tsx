@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Plus } from "lucide-react";
+import { FileUp, Plus } from "lucide-react";
 
 import { AddTunnelDialog } from "@/components/tunnel/add-tunnel-dialog";
+import { ImportDialog } from "@/components/tunnel/import-dialog";
 import { TunnelCard } from "@/components/tunnel/tunnel-card";
 import { LogSheet } from "@/components/tunnel/log-sheet";
 import { BridgeIllustration } from "@/components/pier-logo";
@@ -18,6 +19,7 @@ export function HomePage() {
   const [editTunnel, setEditTunnel] = useState<TunnelConfig | null>(null);
   const [logTunnel, setLogTunnel] = useState<TunnelConfig | null>(null);
   const [logOpen, setLogOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
 
   const openCreate = () => {
     setEditTunnel(null);
@@ -46,10 +48,16 @@ export function HomePage() {
             {t("home.subtitle")}
           </p>
         </div>
-        <Button onClick={openCreate}>
-          <Plus className="size-4" />
-          {t("home.newTunnel")}
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button variant="outline" onClick={() => setImportOpen(true)}>
+            <FileUp className="size-4" />
+            {t("import.button")}
+          </Button>
+          <Button onClick={openCreate}>
+            <Plus className="size-4" />
+            {t("home.newTunnel")}
+          </Button>
+        </div>
       </header>
 
       {/* Tunnel list */}
@@ -77,6 +85,11 @@ export function HomePage() {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         editTunnel={editTunnel}
+      />
+      <ImportDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        onImported={() => undefined}
       />
       <LogSheet
         tunnel={logTunnel}

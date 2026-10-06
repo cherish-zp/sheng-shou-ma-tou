@@ -16,6 +16,15 @@
 //     - bore-v0.6.0-aarch64-apple-darwin.tar.gz  (contains `bore` at archive root)
 //     - bore-v0.6.0-x86_64-apple-darwin.tar.gz
 //     - bore-v0.6.0-x86_64-pc-windows-msvc.zip
+//   frp: https://github.com/fatedier/frp/releases (resolved via the GitHub API;
+//   asset names verified on 2026-10-06, all HTTP 200, tag v0.71.0 — note the
+//   asset version carries NO `v` prefix while the tag does):
+//     - frp_0.71.0_darwin_arm64.tar.gz
+//     - frp_0.71.0_windows_amd64.zip / frp_0.71.0_windows_arm64.zip
+//     - frp_0.71.0_linux_amd64.tar.gz / frp_0.71.0_linux_arm64.tar.gz
+//   ^ frp archives have a TOP-LEVEL DIRECTORY `frp_<ver>_<os>_<arch>/` with
+//   `frpc` (unix) / `frpc.exe` (windows) inside; the unpacker matches by file
+//   name anywhere in the archive, so it sees through the wrapper directory.
 
 use std::ffi::OsStr;
 use std::io::Write;
@@ -34,6 +43,7 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 const CLOUDFLARED_LATEST_URL: &str =
     "https://github.com/cloudflare/cloudflared/releases/latest/download";
 const BORE_RELEASE_API_URL: &str = "https://api.github.com/repos/ekzhang/bore/releases/latest";
+const FRP_RELEASE_API_URL: &str = "https://api.github.com/repos/fatedier/frp/releases/latest";
 
 /// Filename of the engine binary for `backend` on the current platform.
 pub fn binary_file_name(backend: Backend) -> &'static str {
@@ -62,13 +72,21 @@ pub fn binary_file_name(backend: Backend) -> &'static str {
     }
 }
 
-/// Name of the engine binary inside the downloaded archive (archives always
-/// ship the Unix-style name; only the `.exe` assets are plain files).
+/// Name of the engine binary inside the downloaded archive. Cloudflare/Bore
+/// archives always ship the Unix-style name (the Windows cloudflared asset is
+/// a plain binary). frp is the exception: its Windows zip contains
+/// `frpc.exe`, its unix tarballs contain `frpc` — hence the cfg! arm.
 fn archive_inner_name(backend: Backend) -> &'static str {
     match backend {
         Backend::Cloudflare => "cloudflared",
         Backend::Bore => "bore",
-        Backend::Frp => "frpc",
+        Backend::Frp => {
+            if cfg!(target_os = "windows") {
+                "frpc.exe"
+            } else {
+                "frpc"
+            }
+        }
     }
 }
 
@@ -103,6 +121,27 @@ fn bore_asset_name(tag: &str, os: &str, arch: &str) -> Option<String> {
     let triple = bore_target_triple(os, arch)?;
     let ext = if os == "windows" { "zip" } else { "tar.gz" };
     Some(format!("bore-{tag}-{triple}.{ext}"))
+}
+
+/// GitHub asset name of the frp release `tag` for `os`/`arch`.
+/// Verified against v0.71.0: the tag carries a `v` prefix (`v0.71.0`) but the
+/// asset version does NOT (`frp_0.71.0_darwin_arm64.tar.gz`), Windows is a
+/// zip (amd64 AND arm64), everything else is a tar.gz.
+fn frp_asset_name(tag: &str, os: &str, arch: &str) -> Option<String> {
+    let version = tag.strip_prefix('v')?;
+    let frp_os = match os {
+        "macos" => "darwin",
+        "windows" => "windows",
+        "linux" => "linux",
+        _ => return None,
+    };
+    let frp_arch = match arch {
+        "x86_64" => "amd64",
+        "aarch64" => "arm64",
+        _ => return None,
+    };
+    let ext = if os == "windows" { "zip" } else { "tar.gz" };
+    Some(format!("frp_{version}_{frp_os}_{frp_arch}.{ext}"))
 }
 
 /// How a downloaded release asset must be unpacked.
@@ -254,9 +293,25 @@ async fn install_to_dir(dir: &Path, backend: Backend) -> Result<PathBuf, String>
             let url = format!("{CLOUDFLARED_LATEST_URL}/{asset}");
             (asset.to_string(), url)
         }
-        // frpc download mapping (fatedier/frp release assets) lands with M2.
+        // frp releases carry a top-level directory inside the archive; the
+        // unpacker matches the binary by file name, so it sees through it.
         Backend::Frp => {
-            return Err("frpc download is not implemented yet".into());
+            let release = fetch_latest_github_release(FRP_RELEASE_API_URL, "frp").await?;
+            let asset = frp_asset_name(&release.tag_name, os, arch).ok_or_else(|| {
+                "frp publishes no official build for this platform".to_string()
+            })?;
+            match release.assets.iter().find(|a| a.name == asset) {
+                Some(a) => (a.name.clone(), a.browser_download_url.clone()),
+                None => {
+                    let names: Vec<&str> = release.assets.iter().map(|a| a.name.as_str()).collect();
+                    return Err(format!(
+                        "frp release {} does not contain the expected asset {asset:?} \
+                         (available: {})",
+                        release.tag_name,
+                        names.join(", ")
+                    ));
+                }
+            }
         }
         Backend::Bore => {
             let release = fetch_latest_bore_release().await?;
@@ -301,25 +356,27 @@ struct GitHubAsset {
     browser_download_url: String,
 }
 
-async fn fetch_latest_bore_release() -> Result<GitHubRelease, String> {
+async fn fetch_latest_github_release(api_url: &str, project: &str) -> Result<GitHubRelease, String> {
     let resp = http_client()?
-        .get(BORE_RELEASE_API_URL)
+        .get(api_url)
         .header("Accept", "application/vnd.github+json")
         .send()
         .await
-        .map_err(|e| format!("request to {BORE_RELEASE_API_URL} failed: {e}"))?;
+        .map_err(|e| format!("request to {api_url} failed: {e}"))?;
     let status = resp.status();
     let body = resp
         .bytes()
         .await
-        .map_err(|e| format!("reading the response from {BORE_RELEASE_API_URL} failed: {e}"))?;
+        .map_err(|e| format!("reading the response from {api_url} failed: {e}"))?;
     if !status.is_success() {
-        return Err(format!(
-            "GitHub API returned HTTP {status} for {BORE_RELEASE_API_URL}"
-        ));
+        return Err(format!("GitHub API returned HTTP {status} for {api_url}"));
     }
     serde_json::from_slice(&body)
-        .map_err(|e| format!("could not parse the bore release info: {e}"))
+        .map_err(|e| format!("could not parse the {project} release info: {e}"))
+}
+
+async fn fetch_latest_bore_release() -> Result<GitHubRelease, String> {
+    fetch_latest_github_release(BORE_RELEASE_API_URL, "bore").await
 }
 
 fn http_client() -> Result<reqwest::Client, String> {
@@ -454,17 +511,30 @@ fn make_executable(_path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Extract the entry whose file name is `inner_name` from a gzip tarball.
+/// Extract the entry named `inner_name` from a gzip tarball.
+///
+/// The name is matched against the entry's FILE NAME at any depth, so
+/// archives with a top-level wrapper directory (frp ships
+/// `frp_<ver>_<os>_<arch>/frpc`) are handled. Path-traversal safety: the
+/// entry path is never used as an extraction destination — the content is
+/// streamed into the fixed `dest` — and only regular files qualify, so a
+/// crafted `../../...` entry, directory entry or symlink cannot escape.
 fn unpack_tar_gz(archive: &Path, inner_name: &str, dest: &Path) -> Result<(), String> {
     let file = std::fs::File::open(archive)
         .map_err(|e| format!("failed to open {}: {e}", archive.display()))?;
     let mut tar = tar::Archive::new(flate2::read::GzDecoder::new(file));
+    // Do not follow the archive's own path hints; we never extract paths.
+    tar.set_preserve_permissions(false);
     let entries = tar
         .entries()
         .map_err(|e| format!("failed to read the tar archive {}: {e}", archive.display()))?;
     for entry in entries {
         let mut entry =
             entry.map_err(|e| format!("failed to read a tar entry: {e}"))?;
+        if !entry.header().entry_type().is_file() {
+            // Skips directories, symlinks, hardlinks, etc.
+            continue;
+        }
         let entry_path = entry
             .path()
             .map_err(|e| format!("failed to read a tar entry name: {e}"))?
@@ -483,7 +553,9 @@ fn unpack_tar_gz(archive: &Path, inner_name: &str, dest: &Path) -> Result<(), St
     ))
 }
 
-/// Extract the entry whose file name is `inner_name` from a zip archive.
+/// Extract the entry named `inner_name` from a zip archive (matched by file
+/// name at any depth, regular files only — same traversal model as
+/// `unpack_tar_gz`).
 fn unpack_zip(archive: &Path, inner_name: &str, dest: &Path) -> Result<(), String> {
     let file = std::fs::File::open(archive)
         .map_err(|e| format!("failed to open {}: {e}", archive.display()))?;
@@ -493,7 +565,7 @@ fn unpack_zip(archive: &Path, inner_name: &str, dest: &Path) -> Result<(), Strin
         let mut entry = zip
             .by_index(i)
             .map_err(|e| format!("failed to open zip entry #{i}: {e}"))?;
-        if entry.is_dir() {
+        if entry.is_dir() || entry.is_symlink() {
             continue;
         }
         let entry_path = Path::new(entry.name()).to_path_buf();
@@ -560,6 +632,55 @@ mod tests {
     }
 
     #[test]
+    fn frp_assets_map_by_platform() {
+        // Tag carries the `v`, the asset version does not (verified on v0.71.0).
+        assert_eq!(
+            frp_asset_name("v0.71.0", "macos", "aarch64").as_deref(),
+            Some("frp_0.71.0_darwin_arm64.tar.gz")
+        );
+        assert_eq!(
+            frp_asset_name("v0.71.0", "macos", "x86_64").as_deref(),
+            Some("frp_0.71.0_darwin_amd64.tar.gz")
+        );
+        assert_eq!(
+            frp_asset_name("v0.71.0", "windows", "x86_64").as_deref(),
+            Some("frp_0.71.0_windows_amd64.zip")
+        );
+        assert_eq!(
+            frp_asset_name("v0.71.0", "windows", "aarch64").as_deref(),
+            Some("frp_0.71.0_windows_arm64.zip")
+        );
+        assert_eq!(
+            frp_asset_name("v0.71.0", "linux", "x86_64").as_deref(),
+            Some("frp_0.71.0_linux_amd64.tar.gz")
+        );
+        assert_eq!(
+            frp_asset_name("v0.71.0", "linux", "aarch64").as_deref(),
+            Some("frp_0.71.0_linux_arm64.tar.gz")
+        );
+        assert_eq!(frp_asset_name("v0.71.0", "freebsd", "x86_64"), None);
+        assert_eq!(frp_asset_name("v0.71.0", "android", "x86_64"), None);
+        // frp tags always carry the v prefix; a bare version yields no asset.
+        assert_eq!(frp_asset_name("0.71.0", "macos", "aarch64"), None);
+    }
+
+    #[test]
+    fn frp_inner_name_matches_final_binary_name() {
+        // frp is the one backend whose Windows archive ships the `.exe` name
+        // (frp_0.71.0_windows_amd64/frpc.exe); the unpacker's file-name match
+        // must agree with the final swap name on every platform.
+        assert_eq!(
+            archive_inner_name(Backend::Frp),
+            binary_file_name(Backend::Frp)
+        );
+        if cfg!(target_os = "windows") {
+            assert_eq!(archive_inner_name(Backend::Frp), "frpc.exe");
+        } else {
+            assert_eq!(archive_inner_name(Backend::Frp), "frpc");
+        }
+    }
+
+    #[test]
     fn archive_kind_is_detected_from_extension() {
         assert_eq!(archive_kind("cloudflared-darwin-arm64.tgz"), ArchiveKind::TarGz);
         assert_eq!(
@@ -589,10 +710,11 @@ mod tests {
     }
 
     /// Real end-to-end pipeline (download -> unpack -> chmod -> swap) against
-    /// GitHub. Ignored by default because it downloads ~40 MB.
+    /// GitHub. Ignored by default because it downloads ~40 MB per backend
+    /// (frp archives ship both frpc and frps).
     /// Run with: cargo test -- --ignored
     #[test]
-    #[ignore = "downloads real cloudflared/bore builds (~40 MB) from GitHub"]
+    #[ignore = "downloads real cloudflared/bore/frp builds (~55 MB) from GitHub"]
     fn install_pipeline_downloads_unpacks_and_marks_executable() {
         let dir = std::env::temp_dir().join(format!("pier-binman-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -603,7 +725,7 @@ mod tests {
             .build()
             .expect("build runtime");
 
-        for backend in [Backend::Cloudflare, Backend::Bore] {
+        for backend in [Backend::Cloudflare, Backend::Bore, Backend::Frp] {
             let path = rt
                 .block_on(install_to_dir(&dir, backend))
                 .unwrap_or_else(|e| panic!("{backend:?} install failed: {e}"));

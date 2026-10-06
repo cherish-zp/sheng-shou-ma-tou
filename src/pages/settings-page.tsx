@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useTheme } from "next-themes";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
-import { Cloud, LoaderCircle, Monitor, Moon, Radio, Sun } from "lucide-react";
+import { Cloud, LoaderCircle, Monitor, Moon, Radio, Server, Sun } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -14,7 +14,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -63,7 +62,7 @@ const ENGINE_META: Record<
     descKey: "settings.engineBoreDescription",
   },
   frp: {
-    icon: Radio,
+    icon: Server,
     nameKey: "settings.engineFrp",
     descKey: "settings.engineFrpDescription",
   },
@@ -128,8 +127,7 @@ export function SettingsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex items-center justify-between">
-              <Label htmlFor="language-select">{t("settings.language")}</Label>
+            <div className="flex items-center justify-end">
               <Select
                 value={i18n.language.startsWith("zh") ? "zh-CN" : "en"}
                 onValueChange={(value) => {
@@ -165,7 +163,7 @@ export function SettingsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {(["cloudflare", "bore"] as const).map((backend, index) => (
+            {(["cloudflare", "bore", "frp"] as const).map((backend, index) => (
               <div key={backend}>
                 {index > 0 ? <Separator className="my-4" /> : null}
                 <EngineRow

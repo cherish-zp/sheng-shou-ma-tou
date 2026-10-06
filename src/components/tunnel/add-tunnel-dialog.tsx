@@ -13,10 +13,17 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn, errorMessage, randomId } from "@/lib/utils";
 import { api } from "@/lib/tauri";
 import { mergeState, upsertConfig } from "@/store/tunnel-store";
-import type { TunnelConfig, TunnelType } from "@/types/tunnel";
+import type { ServerConfig, TunnelConfig, TunnelType } from "@/types/tunnel";
 
 interface AddTunnelDialogProps {
   open: boolean;
@@ -47,6 +54,19 @@ const TYPE_OPTIONS: Array<{
   },
 ];
 
+const CHANNEL_OPTIONS = [
+  { value: "quick", labelKey: "add.channelQuick" },
+  { value: "selfhosted", labelKey: "add.channelSelfHosted" },
+] as const;
+
+type Channel = (typeof CHANNEL_OPTIONS)[number]["value"];
+
+function parsePort(value: string): number | null {
+  if (!/^\d+$/.test(value.trim())) return null;
+  const port = Number.parseInt(value, 10);
+  return port >= 1 && port <= 65535 ? port : null;
+}
+
 export function AddTunnelDialog({
   open,
   onOpenChange,
@@ -63,11 +83,26 @@ export function AddTunnelDialog({
   const [submitting, setSubmitting] = useState(false);
   const [portError, setPortError] = useState(false);
 
+  // M2: self-hosted channel state. Only offered in create mode when at least
+  // one deployed server exists.
+  const [servers, setServers] = useState<ServerConfig[]>([]);
+  const [channel, setChannel] = useState<Channel>("quick");
+  const [serverId, setServerId] = useState("");
+  const [subdomain, setSubdomain] = useState("");
+  const [remotePort, setRemotePort] = useState("");
+  const [remotePortError, setRemotePortError] = useState(false);
+
   // Reset (create) or prefill (edit) whenever the dialog opens.
   useEffect(() => {
     if (!open) return;
     setSubmitting(false);
     setPortError(false);
+    setServers([]);
+    setChannel("quick");
+    setServerId("");
+    setSubdomain("");
+    setRemotePort("");
+    setRemotePortError(false);
     if (editTunnel) {
       setStep(TOTAL_STEPS);
       setTunnelType(editTunnel.tunnelType);
@@ -80,6 +115,11 @@ export function AddTunnelDialog({
       setName("");
       setLocalHost("127.0.0.1");
       setLocalPort("");
+      // Load deployed servers to offer the self-hosted channel.
+      api
+        .listServers()
+        .then((list) => setServers(list.filter((s) => s.deployed)))
+        .catch(() => setServers([]));
     }
   }, [open, editTunnel]);
 
@@ -91,9 +131,21 @@ export function AddTunnelDialog({
     /^\d+$/.test(localPort.trim());
   const hostValid = localHost.trim().length > 0;
 
+  const selectedServer = servers.find((s) => s.id === serverId) ?? null;
+  const useFrp = !isEdit && channel === "selfhosted" && servers.length > 0;
+  const parsedRemotePort = parsePort(remotePort);
+
   function pickType(type: TunnelType) {
     setTunnelType(type);
     setStep(2);
+  }
+
+  function pickChannel(next: Channel) {
+    setChannel(next);
+    // Preselect the only deployed server for convenience.
+    if (next === "selfhosted" && !serverId && servers.length === 1) {
+      setServerId(servers[0].id);
+    }
   }
 
   async function handleSubmit() {
@@ -103,6 +155,16 @@ export function AddTunnelDialog({
     }
     if (!hostValid) {
       toast.error(t("add.hostRequired"));
+      return;
+    }
+    if (useFrp && !serverId) {
+      toast.error(t("add.serverRequired"));
+      return;
+    }
+    // frpc TCP proxies require an explicit remotePort, so make it mandatory
+    // on the self-hosted channel.
+    if (useFrp && tunnelType === "tcp" && parsedRemotePort === null) {
+      setRemotePortError(true);
       return;
     }
     setSubmitting(true);
@@ -123,11 +185,22 @@ export function AddTunnelDialog({
           id: randomId(),
           name: name.trim() || `port-${parsedPort}`,
           tunnelType,
-          backend: tunnelType === "http" ? "cloudflare" : "bore",
+          backend: useFrp
+            ? "frp"
+            : tunnelType === "http"
+              ? "cloudflare"
+              : "bore",
           localHost: localHost.trim() || "127.0.0.1",
           localPort: parsedPort,
           autoStart: false,
           createdAt: new Date().toISOString(),
+          ...(useFrp
+            ? {
+                serverId,
+                subdomain: tunnelType === "http" ? subdomain.trim() || null : null,
+                remotePort: tunnelType === "tcp" ? parsedRemotePort : null,
+              }
+            : {}),
         };
         await api.createTunnel(created);
         upsertConfig(created);
@@ -145,10 +218,21 @@ export function AddTunnelDialog({
     }
   }
 
-  const backendNote =
-    tunnelType === "http"
-      ? t("add.backendMappingHttp")
-      : t("add.backendMappingTcp");
+  const backendNote = isEdit
+    ? editTunnel?.backend === "frp"
+      ? t("add.backendMappingFrpGeneric")
+      : tunnelType === "http"
+        ? t("add.backendMappingHttp")
+        : t("add.backendMappingTcp")
+    : useFrp
+      ? t("add.backendMappingFrp", {
+          name: selectedServer?.name || selectedServer?.host || "",
+        })
+      : tunnelType === "http"
+        ? t("add.backendMappingHttp")
+        : t("add.backendMappingTcp");
+
+  const showChannelPicker = !isEdit && servers.length > 0;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -191,6 +275,52 @@ export function AddTunnelDialog({
           </div>
         ) : (
           <div className="flex flex-col gap-4 pt-1">
+            {/* Channel picker: quick (public relays) vs self-hosted (frp) */}
+            {showChannelPicker ? (
+              <div className="flex flex-col gap-2">
+                <Label>{t("add.channel")}</Label>
+                <div className="inline-flex w-fit items-center gap-1 rounded-lg border bg-muted/40 p-1">
+                  {CHANNEL_OPTIONS.map(({ value, labelKey }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => pickChannel(value)}
+                      className={cn(
+                        "inline-flex items-center rounded-md px-3 py-1.5 text-[13px] transition-all",
+                        channel === value
+                          ? "bg-background text-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      {t(labelKey)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {/* Self-hosted: pick the deployed server */}
+            {useFrp ? (
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="tunnel-server">{t("add.server")}</Label>
+                <Select
+                  value={serverId}
+                  onValueChange={(value) => setServerId(value)}
+                >
+                  <SelectTrigger id="tunnel-server" className="w-full">
+                    <SelectValue placeholder={t("add.serverPlaceholder")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {servers.map((server) => (
+                      <SelectItem key={server.id} value={server.id}>
+                        {server.name || server.host}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
+
             <div className="flex flex-col gap-2">
               <Label htmlFor="tunnel-name">{t("add.name")}</Label>
               <Input
@@ -233,6 +363,62 @@ export function AddTunnelDialog({
             </div>
             {portError ? (
               <p className="text-xs text-destructive">{t("add.portRequired")}</p>
+            ) : null}
+
+            {/* Self-hosted HTTP: optional subdomain */}
+            {useFrp && tunnelType === "http" ? (
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="tunnel-subdomain">{t("add.subdomain")}</Label>
+                <Input
+                  id="tunnel-subdomain"
+                  value={subdomain}
+                  onChange={(e) => setSubdomain(e.target.value)}
+                  placeholder={
+                    selectedServer?.subdomainHost
+                      ? t("add.subdomainPlaceholder", {
+                          name: "myapp",
+                          host: selectedServer.subdomainHost,
+                        })
+                      : t("add.subdomainPlaceholderNoHost")
+                  }
+                  className="font-mono"
+                  spellCheck={false}
+                />
+              </div>
+            ) : null}
+
+            {/* Self-hosted TCP: required remote port */}
+            {useFrp && tunnelType === "tcp" ? (
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="tunnel-remote-port">{t("add.remotePort")}</Label>
+                <Input
+                  id="tunnel-remote-port"
+                  type="number"
+                  min={1}
+                  max={65535}
+                  value={remotePort}
+                  onChange={(e) => {
+                    setRemotePort(e.target.value);
+                    setRemotePortError(false);
+                  }}
+                  placeholder={t("add.remotePortPlaceholder")}
+                  className={cn(
+                    "font-mono",
+                    remotePortError && "border-destructive",
+                  )}
+                  aria-invalid={remotePortError}
+                />
+                <p
+                  className={cn(
+                    "text-xs leading-relaxed",
+                    remotePortError ? "text-destructive" : "text-muted-foreground",
+                  )}
+                >
+                  {remotePortError
+                    ? t("add.remotePortRequired")
+                    : t("add.remotePortHint")}
+                </p>
+              </div>
             ) : null}
 
             {/* Backend auto-mapping note */}

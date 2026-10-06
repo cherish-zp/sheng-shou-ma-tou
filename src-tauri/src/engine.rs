@@ -22,7 +22,7 @@
 //   bore reports per-tunnel traffic on stdout/stderr; the fields are kept for
 //   the UI contract (frontend renders "-").
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
@@ -34,7 +34,7 @@ use tokio::io::AsyncBufReadExt;
 use tokio::sync::{oneshot, Notify};
 
 use crate::binman;
-use crate::models::{TunnelConfig, TunnelState, TunnelStatus};
+use crate::models::{Backend, TunnelConfig, TunnelState, TunnelStatus};
 use crate::providers;
 
 /// Emitted on every status transition. Payload: `{ "state": TunnelState }`.
@@ -48,6 +48,8 @@ const MAX_BACKOFF: Duration = Duration::from_secs(30);
 const STOP_WAIT_TIMEOUT: Duration = Duration::from_secs(3);
 const STOP_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const ERROR_LINE_MAX_LEN: usize = 300;
+/// Ring-buffer cap for per-tunnel log lines kept for the diagnostics engine.
+const LOG_RING_CAP: usize = 200;
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -86,6 +88,9 @@ struct TunnelHandle {
     notify: Notify,
     /// OS pid of the current child (0 when none). Informational.
     pid: AtomicU32,
+    /// Ring buffer of the most recent output lines (ANSI stripped, oldest
+    /// first), consumed by the diagnostics engine via `Engine::recent_logs`.
+    logs: Mutex<VecDeque<String>>,
 }
 
 impl TunnelHandle {
@@ -97,7 +102,18 @@ impl TunnelHandle {
             kill_tx: Mutex::new(None),
             notify: Notify::new(),
             pid: AtomicU32::new(0),
+            logs: Mutex::new(VecDeque::with_capacity(LOG_RING_CAP)),
         }
+    }
+
+    /// Append one stripped output line to the ring buffer, dropping the
+    /// oldest when full.
+    fn push_log(&self, line: &str) {
+        let mut logs = self.logs.lock().unwrap_or_else(|e| e.into_inner());
+        if logs.len() >= LOG_RING_CAP {
+            logs.pop_front();
+        }
+        logs.push_back(line.to_string());
     }
 
     fn snapshot(&self) -> TunnelState {
@@ -165,10 +181,16 @@ impl Engine {
     }
 
     /// Most recent `max` log lines for a tunnel (oldest first), for the
-    /// diagnostics engine. Implemented with the M2 log ring buffer; empty
-    /// until then.
-    pub fn recent_logs(&self, _id: &str, _max: usize) -> Vec<String> {
-        Vec::new()
+    /// diagnostics engine. Lines are the ANSI-stripped form; returns an empty
+    /// Vec when the tunnel has no live handle in this session.
+    pub fn recent_logs(&self, id: &str, max: usize) -> Vec<String> {
+        let handles = self.handles.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(handle) = handles.get(id) else {
+            return Vec::new();
+        };
+        let logs = handle.logs.lock().unwrap_or_else(|e| e.into_inner());
+        let skip = logs.len().saturating_sub(max);
+        logs.iter().skip(skip).cloned().collect()
     }
 
     /// Start (or resume retrying) a tunnel. Returns the state right after
@@ -388,7 +410,28 @@ async fn run_attempt(
         return AttemptOutcome { had_url: false, fatal: None, error: None };
     }
 
-    let mut cmd = providers::build_command(cfg, &binary);
+    // Frp needs a generated config file and never prints its own public
+    // endpoint, so both the command and the expected public URL are prepared
+    // HERE, once per attempt: a rotated frps token or an edited server is
+    // picked up on every retry.
+    let (mut cmd, expected_url) = match cfg.backend {
+        Backend::Frp => {
+            let launch = match providers::prepare_frpc_config(&engine.app, cfg).await {
+                Ok(launch) => launch,
+                // Unbound server / missing token / unwritable cache: a
+                // configuration failure the user must fix, so surface it as
+                // Error instead of retrying forever.
+                Err(e) => {
+                    return AttemptOutcome { had_url: false, fatal: Some(e), error: None };
+                }
+            };
+            (
+                providers::build_frpc_command(&binary, &launch.config_path),
+                launch.public_url,
+            )
+        }
+        _ => (providers::build_command(cfg, &binary), None),
+    };
     cmd.stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -453,6 +496,8 @@ async fn run_attempt(
                 if line.is_empty() {
                     continue;
                 }
+                // Keep the ANSI-stripped form in the diagnostics ring buffer.
+                handle.push_log(&providers::strip_ansi(&line));
                 let level = providers::classify_level(cfg.backend, &line);
                 engine.emit_log(&cfg.id, level, &line);
                 if level == "error" {
@@ -465,7 +510,17 @@ async fn run_attempt(
                     last_error = Some(line.clone());
                 }
                 if public_url.is_none() {
-                    if let Some(url) = providers::parse_public_endpoint(cfg.backend, &line) {
+                    let mut hit = providers::parse_public_endpoint(cfg.backend, &line);
+                    // frpc never prints its public endpoint; bind the URL
+                    // computed at config-prep time once frpc confirms the
+                    // proxy started forwarding.
+                    if hit.is_none()
+                        && cfg.backend == Backend::Frp
+                        && providers::frpc_proxy_started(&line)
+                    {
+                        hit = expected_url.clone();
+                    }
+                    if let Some(url) = hit {
                         public_url = Some(url.clone());
                         let st = handle.update(|s| {
                             s.status = TunnelStatus::Running;
@@ -475,6 +530,17 @@ async fn run_attempt(
                         });
                         engine.emit_state(&st);
                     }
+                }
+                // frpc keeps running even when the server rejected the proxy
+                // (name/port conflict: "start error: ..."); that attempt can
+                // never become Running, so kill it and let the supervisor
+                // reconnect with a freshly prepared config.
+                if cfg.backend == Backend::Frp
+                    && public_url.is_none()
+                    && providers::frpc_start_error(&line)
+                {
+                    last_error = Some(line.clone());
+                    break;
                 }
             }
             _ = &mut kill_rx => {

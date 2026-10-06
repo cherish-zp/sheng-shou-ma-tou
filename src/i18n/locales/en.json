@@ -5,6 +5,7 @@
   },
   "nav": {
     "tunnels": "Tunnels",
+    "servers": "Servers",
     "settings": "Settings"
   },
   "common": {
@@ -39,6 +40,7 @@
   "card": {
     "backendCloudflare": "Cloudflare",
     "backendBore": "bore",
+    "backendFrp": "frp",
     "waitingUrl": "Waiting for a public URL…",
     "noUrl": "No public URL",
     "traffic": "Traffic",
@@ -72,8 +74,23 @@
     "localHost": "Local host",
     "localPort": "Local port",
     "portPlaceholder": "e.g. 3000",
+    "channel": "Channel",
+    "channelQuick": "Quick",
+    "channelSelfHosted": "Self-hosted",
+    "server": "Server",
+    "serverPlaceholder": "Select a deployed server",
+    "serverRequired": "Select a server",
+    "subdomain": "Subdomain",
+    "subdomainPlaceholder": "Optional, full address {{name}}.{{host}}",
+    "subdomainPlaceholderNoHost": "Optional, e.g. myapp",
+    "remotePort": "Remote port",
+    "remotePortPlaceholder": "e.g. 6000",
+    "remotePortHint": "Leave empty to let the server pick any free port (unpredictable). Specifying one is recommended.",
+    "remotePortRequired": "A remote port is required for self-hosted TCP tunnels",
     "backendMappingHttp": "Forwarded through a Cloudflare quick tunnel (no account needed)",
     "backendMappingTcp": "Forwarded through the bore public relay (no account needed)",
+    "backendMappingFrp": "Forwarded through your server “{{name}}” (frp)",
+    "backendMappingFrpGeneric": "Forwarded through a self-hosted frp server",
     "submitCreate": "Create & Start",
     "submitEdit": "Save Changes",
     "creating": "Creating…",
@@ -91,6 +108,240 @@
   "qr": {
     "title": "Scan to Open",
     "description": "Scan with your phone to open this URL"
+  },
+  "servers": {
+    "title": "Servers",
+    "subtitle": "Turn your own VPS into a dedicated tunnel server",
+    "count": "{{n}} servers",
+    "add": "Add Server",
+    "loadFailed": "Failed to load servers",
+    "emptyTitle": "No servers yet",
+    "emptyDescription": "Add a VPS of your own and Pier will deploy frps on it automatically, turning it into your dedicated tunnel server.",
+    "emptyCta": "Add your first server",
+    "statusRunning": "frps running",
+    "statusDeployed": "frps deployed (not running)",
+    "statusNotDeployed": "Not deployed",
+    "frpsVersion": "frps v{{version}}",
+    "card": {
+      "deploy": "Deploy / Upgrade",
+      "viewProgress": "View deploy progress",
+      "test": "Test connection",
+      "testing": "Testing…",
+      "testOk": "Connection OK",
+      "testFailed": "Connection problem",
+      "undeploy": "Uninstall",
+      "delete": "Delete",
+      "more": "More actions",
+      "undeployTitle": "Uninstall frps?",
+      "undeployDescription": "The frps service and its configuration will be stopped and removed from the server. All tunnels published through this server will go down.",
+      "undeploySuccess": "frps uninstalled",
+      "undeployFailed": "Failed to uninstall",
+      "deleteTitle": "Delete this server record?",
+      "deleteDescription": "Only the local record “{{name}}” will be removed. Nothing already deployed on the server is affected.",
+      "deleteSuccess": "Deleted “{{name}}”",
+      "deleteFailed": "Failed to delete",
+      "subdomainHost": "Wildcard domain",
+      "testDetail": "Result"
+    },
+    "form": {
+      "title": "Add Server",
+      "description": "Provide a server you can reach over SSH. Pier will deploy and manage frps on it.",
+      "name": "Name",
+      "namePlaceholder": "Optional, e.g. “My VPS”",
+      "host": "Host",
+      "hostPlaceholder": "IP address or domain",
+      "port": "SSH port",
+      "username": "Username",
+      "usernamePlaceholder": "Usually root",
+      "authKind": "Authentication",
+      "authPassword": "Password",
+      "authKeypath": "Private key file path",
+      "secretPassword": "SSH password",
+      "secretKeypath": "Private key path",
+      "secretKeypathPlaceholder": "e.g. ~/.ssh/id_ed25519",
+      "advanced": "Advanced options",
+      "frpsBindPort": "frp bind port",
+      "frpsVhostHttpPort": "HTTP vhost port",
+      "frpsVhostHttpsPort": "HTTPS vhost port",
+      "frpsDashboardPort": "Dashboard port",
+      "subdomainHost": "Wildcard domain",
+      "subdomainHostPlaceholder": "e.g. tunnel.example.com",
+      "subdomainHostHint": "Point an A record for *.{{host}} to this server before using subdomain mode",
+      "submit": "Add",
+      "submitting": "Adding…",
+      "hostRequired": "Enter a host address",
+      "usernameRequired": "Enter a username",
+      "secretRequired": "Enter a password or a key path",
+      "portRequired": "Enter a port between 1 and 65535",
+      "success": "Server added. You can deploy it now.",
+      "failed": "Failed to add server"
+    }
+  },
+  "deploy": {
+    "title": "Deploy frps",
+    "subtitle": "Configuring “{{name}}”",
+    "runningHint": "A first deployment takes about 1-2 minutes. Click “Run in background” to minimize this window — deployment keeps going.",
+    "background": "Run in background",
+    "steps": {
+      "connect": "Connect to server",
+      "probe": "Probe environment",
+      "ports": "Check ports",
+      "download": "Download frps",
+      "config": "Write configuration",
+      "systemd": "Install system service",
+      "service": "Install system service",
+      "firewall": "Open firewall",
+      "verify": "Verify deployment"
+    },
+    "successTitle": "Deployment complete",
+    "successDescription": "frps is now running on your server. You can create tunnels that point to it.",
+    "portsTitle": "Port info",
+    "portBind": "frp bind port",
+    "portVhostHttp": "HTTP vhost port",
+    "portVhostHttps": "HTTPS vhost port",
+    "portDashboard": "Dashboard port",
+    "tokenLabel": "frps token",
+    "failedTitle": "Deployment failed",
+    "retry": "Retry",
+    "done": "Done"
+  },
+  "import": {
+    "button": "Import",
+    "title": "Import frpc config",
+    "description": "Paste an frpc config (TOML or INI) and Pier will extract the tunnels that can be imported.",
+    "placeholder": "Paste the contents of frpc.toml or frpc.ini here…",
+    "targetServer": "Target server",
+    "noServer": "No server",
+    "noServerHint": "Without a server, imported tunnels use the quick channel",
+    "previewTitle": "Found {{n}} tunnels",
+    "colName": "Name",
+    "colType": "Type",
+    "colLocal": "Local port",
+    "colRemote": "Remote / subdomain",
+    "submit": "Import {{n}} tunnels",
+    "importing": "Importing…",
+    "parseButton": "Parse",
+    "emptyText": "Paste some config first",
+    "parseFailed": "No importable tunnels found",
+    "parseFailedDescription": "Make sure the pasted text is a complete, valid frpc config",
+    "success": "Imported {{n}} tunnels",
+    "partial": "Import finished: {{ok}} succeeded, {{failed}} failed",
+    "importFailed": "Failed to import tunnel"
+  },
+  "diagnosis": {
+    "action": "Diagnose",
+    "diagnosing": "Diagnosing…",
+    "rerun": "Diagnose again",
+    "collapse": "Hide diagnosis",
+    "detailLabel": "Raw log",
+    "suggestionsLabel": "What you can do",
+    "actionFailed": "Diagnosis failed",
+    "code": {
+      "allHealthy": {
+        "title": "All healthy",
+        "detail": "Nothing unusual found — the tunnel configuration and its connection look normal.",
+        "suggestions": [
+          "If the tunnel is still not working, try stopping and starting it again",
+          "Check the run logs for occasional errors"
+        ]
+      },
+      "tokenMismatch": {
+        "title": "Token mismatch",
+        "detail": "The token carried by the local frpc does not match the one configured in frps on the server, so the server rejected the connection.",
+        "suggestions": [
+          "Run “Deploy / Upgrade” for this server on the Servers page to regenerate the token, then start the tunnel again",
+          "If you edited the server config manually, make sure the token in frpc matches the token in the server's frps config exactly"
+        ]
+      },
+      "authFailed": {
+        "title": "SSH authentication failed",
+        "detail": "The server rejected the credentials used to connect.",
+        "suggestions": [
+          "Double-check the username and the password / key path",
+          "When logging in with a key, make sure its public key is in the server's ~/.ssh/authorized_keys",
+          "Run ssh user@host in a terminal to verify you can log in"
+        ]
+      },
+      "versionMismatch": {
+        "title": "frpc / frps version mismatch",
+        "detail": "The client and server frp versions differ too much, which can break protocol compatibility.",
+        "suggestions": [
+          "Run “Deploy / Upgrade” for this server to update frps to a matching version",
+          "Reinstall the frpc engine under Settings → Engines so both ends match"
+        ]
+      },
+      "portConflict": {
+        "title": "Port already in use",
+        "detail": "A port frps needs to listen on is occupied by another process on the server.",
+        "suggestions": [
+          "Log in to the server and run ss -tlnp | grep <port> to find the process holding the port",
+          "Change the frps ports in the advanced options when adding the server, then deploy again",
+          "If an old frps is left over, run “Uninstall” and then “Deploy” to clean it up"
+        ]
+      },
+      "connectionRefused": {
+        "title": "Connection refused",
+        "detail": "Nothing is listening on the target port, or a firewall is blocking it.",
+        "suggestions": [
+          "Check that the server firewall / cloud security group allows TCP 7000 (the frp bind port)",
+          "Make sure frps is running on the server: run “Deploy / Upgrade” or “Test connection”",
+          "Verify the server address and port used by the tunnel are correct"
+        ]
+      },
+      "connectionTimeout": {
+        "title": "Connection timed out",
+        "detail": "Establishing a connection to the server timed out — network unreachable, firewall dropping packets, or the server is offline.",
+        "suggestions": [
+          "Make sure the server is online and reachable: ping <server address>",
+          "Check that the server firewall / cloud security group allows TCP 7000 (the frp bind port)",
+          "Pier will retry automatically; cross-border routes may need another moment"
+        ]
+      },
+      "dnsFailed": {
+        "title": "DNS lookup failed",
+        "detail": "The server address or subdomain could not be resolved to an IP.",
+        "suggestions": [
+          "Run nslookup <domain> in a terminal to see what it resolves to",
+          "Check that the server's A record points to the correct public IP",
+          "For self-hosted servers, make sure the wildcard *.subdomainHost resolves to the server"
+        ]
+      },
+      "localServiceDown": {
+        "title": "Local service unreachable",
+        "detail": "Nothing is listening on the local address this tunnel forwards to.",
+        "suggestions": [
+          "Make sure the local service is running; verify with curl http://127.0.0.1:<port>",
+          "Check that the tunnel's local host and port are correct",
+          "If the service binds to a specific interface only, try 127.0.0.1 as the local host"
+        ]
+      },
+      "binaryMissing": {
+        "title": "frpc not installed",
+        "detail": "The frpc engine is missing on this machine, so frp tunnels cannot start.",
+        "suggestions": [
+          "Install frpc under Settings → Engines",
+          "Restart the tunnel once the installation finishes"
+        ]
+      },
+      "remoteServerUnreachable": {
+        "title": "Server unreachable",
+        "detail": "A network connection to the server could not be established.",
+        "suggestions": [
+          "Verify the server IP / hostname and SSH port",
+          "Check that the server firewall / cloud security group allows your SSH port (default 22)",
+          "Run ping <server address> in a terminal to test connectivity"
+        ]
+      },
+      "genericError": {
+        "title": "Tunnel problem",
+        "detail": "The tunnel hit a problem that could not be classified automatically.",
+        "suggestions": [
+          "Check the run logs for the detailed error",
+          "Stop and start the tunnel again",
+          "If it keeps happening, run “Deploy / Upgrade” for the server again"
+        ]
+      }
+    }
   },
   "settings": {
     "title": "Settings",
@@ -111,6 +362,8 @@
     "engineCloudflareDescription": "cloudflared, used for HTTP quick tunnels",
     "engineBore": "bore engine",
     "engineBoreDescription": "bore, used for TCP tunnels",
+    "engineFrp": "frpc engine",
+    "engineFrpDescription": "frpc, used to connect to self-hosted frp servers",
     "installed": "Installed",
     "notInstalled": "Not installed",
     "install": "Install",
