@@ -12,6 +12,13 @@ export type TunnelStatus =
   | "reconnecting"
   | "error";
 
+/** HTTP Basic Auth for a tunnel; the password lives in the OS keychain. */
+export interface TunnelAuth {
+  /** Currently only "basic". */
+  kind: string;
+  username: string;
+}
+
 export interface TunnelConfig {
   id: string;
   name: string;
@@ -27,6 +34,10 @@ export interface TunnelConfig {
   subdomain?: string | null;
   /** Frp TCP tunnels only: public port allocated on the server. */
   remotePort?: number | null;
+  /** HTTP Basic Auth for this tunnel; password set via setTunnelAuth. */
+  auth?: TunnelAuth | null;
+  /** Only allow these IPs/CIDRs; empty = allow all. */
+  ipAllowlist?: string[];
 }
 
 export interface TunnelState {
@@ -144,4 +155,12 @@ export interface TunnelLogEvent {
   level: "info" | "warn" | "error";
   line: string;
   ts: string;
+}
+
+/** Event "tunnel://stats" payload — throttled to 1/s per running tunnel. */
+export interface TunnelStats {
+  tunnelId: string;
+  bytesIn: number;
+  bytesOut: number;
+  connActive: number;
 }

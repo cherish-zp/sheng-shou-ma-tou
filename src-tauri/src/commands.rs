@@ -326,3 +326,15 @@ pub fn diagnose_tunnel(state: State<'_, AppState>, id: String) -> Result<Diagnos
     let logs = state.engine.recent_logs(&id, 200);
     Ok(crate::diagnostics::diagnose(&id, snap.error.as_deref(), &logs))
 }
+
+/// Set (Some) or clear (None) a tunnel's basic-auth password. The password
+/// never enters tunnels.json — only the OS keychain.
+#[tauri::command]
+pub fn set_tunnel_auth(app: AppHandle, id: String, password: Option<String>) -> Result<(), String> {
+    match password {
+        Some(p) if !p.is_empty() => {
+            crate::servers_store::set_tunnel_auth_password(&app, &id, &p)
+        }
+        _ => crate::servers_store::delete_tunnel_auth_password(&app, &id),
+    }
+}

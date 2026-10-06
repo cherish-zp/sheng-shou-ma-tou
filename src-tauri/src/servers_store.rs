@@ -216,6 +216,40 @@ pub fn try_frps_token(server_id: &str) -> Result<Option<String>, String> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Tunnel basic-auth passwords (M3) — same keychain pattern as above.
+// R5 (local forwarder) owns the implementation below; signatures are frozen.
+// ---------------------------------------------------------------------------
+
+fn tunnel_auth_account(tunnel_id: &str) -> String {
+    format!("tunnel-auth-{tunnel_id}")
+}
+
+/// Store (or replace) the basic-auth password for a tunnel.
+pub fn set_tunnel_auth_password(
+    _app: &tauri::AppHandle,
+    _tunnel_id: &str,
+    _password: &str,
+) -> Result<(), String> {
+    Err("tunnel auth: not implemented".into())
+}
+
+/// Fetch the basic-auth password for a tunnel, `Ok(None)` when not set.
+pub fn get_tunnel_auth_password(
+    _app: &tauri::AppHandle,
+    _tunnel_id: &str,
+) -> Result<Option<String>, String> {
+    Err("tunnel auth: not implemented".into())
+}
+
+/// Delete the basic-auth password when a tunnel's auth is removed.
+pub fn delete_tunnel_auth_password(
+    _app: &tauri::AppHandle,
+    _tunnel_id: &str,
+) -> Result<(), String> {
+    Err("tunnel auth: not implemented".into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

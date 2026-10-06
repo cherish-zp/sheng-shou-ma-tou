@@ -10,6 +10,22 @@ pub enum TunnelType {
     Tcp,
 }
 
+/// Access control attached to a tunnel. Traffic reaches the local service
+/// only through Pier's local forwarder, which enforces this.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TunnelAuth {
+    /// Currently only `basic` (HTTP Basic Auth), applied to HTTP tunnels.
+    pub kind: String,
+    /// Basic-auth username. The password lives in the OS keychain under
+    /// `tunnel-auth-{id}` and is never serialized into config files.
+    pub username: String,
+}
+
+impl TunnelAuth {
+    pub const BASIC: &str = "basic";
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Backend {
@@ -50,6 +66,12 @@ pub struct TunnelConfig {
     /// Frp TCP tunnels only: public port allocated on the server.
     #[serde(default)]
     pub remote_port: Option<u16>,
+    /// HTTP Basic Auth for this tunnel; password in the OS keychain.
+    #[serde(default)]
+    pub auth: Option<TunnelAuth>,
+    /// Only allow connections from these IPs/CIDRs; empty = allow all.
+    #[serde(default)]
+    pub ip_allowlist: Vec<String>,
 }
 
 fn default_local_host() -> String {
@@ -245,4 +267,19 @@ pub struct Diagnosis {
     pub code: String,
     pub level: DiagnosisLevel,
     pub detail: String,
+}
+
+// ---------------------------------------------------------------------------
+// Traffic stats (event "tunnel://stats", emitted by the local forwarder,
+// throttled to at most one per second per tunnel)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TunnelStats {
+    pub tunnel_id: String,
+    pub bytes_in: u64,
+    pub bytes_out: u64,
+    /// Currently open proxied connections.
+    pub conn_active: u32,
 }

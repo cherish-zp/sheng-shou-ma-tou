@@ -282,6 +282,8 @@ fn into_tunnel_config(proxy: RawProxy, server_id: Option<&str>) -> Option<Tunnel
         server_id: server_id.map(str::to_string),
         subdomain,
         remote_port,
+        auth: None,
+        ip_allowlist: Vec::new(),
     })
 }
 

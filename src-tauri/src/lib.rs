@@ -2,6 +2,7 @@ mod binman;
 mod commands;
 mod diagnostics;
 mod engine;
+mod forwarder;
 mod frp_deploy;
 mod frp_import;
 mod models;
@@ -45,6 +46,7 @@ pub fn run() {
             commands::get_server_status,
             commands::import_frpc_config,
             commands::diagnose_tunnel,
+            commands::set_tunnel_auth,
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")

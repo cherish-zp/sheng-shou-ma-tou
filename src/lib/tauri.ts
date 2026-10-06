@@ -16,10 +16,12 @@ import type {
   TunnelLogEvent,
   TunnelState,
   TunnelStateEvent,
+  TunnelStats,
 } from "@/types/tunnel";
 
 export const TUNNEL_STATE_EVENT = "tunnel://state";
 export const TUNNEL_LOG_EVENT = "tunnel://log";
+export const TUNNEL_STATS_EVENT = "tunnel://stats";
 export const DEPLOY_PROGRESS_EVENT = "deploy://progress";
 export const DEPLOY_DONE_EVENT = "deploy://done";
 
@@ -49,6 +51,8 @@ export const api = {
   importFrpcConfig: (text: string, serverId?: string) =>
     invoke<TunnelConfig[]>("import_frpc_config", { text, serverId }),
   diagnoseTunnel: (id: string) => invoke<Diagnosis>("diagnose_tunnel", { id }),
+  setTunnelAuth: (id: string, password: string | null) =>
+    invoke<void>("set_tunnel_auth", { id, password }),
 };
 
 export function onTunnelState(
@@ -79,6 +83,14 @@ export function onDeployDone(
   handler: (result: DeployResult) => void,
 ): Promise<UnlistenFn> {
   return listen<DeployResult>(DEPLOY_DONE_EVENT, (event) =>
+    handler(event.payload),
+  );
+}
+
+export function onTunnelStats(
+  handler: (stats: TunnelStats) => void,
+): Promise<UnlistenFn> {
+  return listen<TunnelStats>(TUNNEL_STATS_EVENT, (event) =>
     handler(event.payload),
   );
 }
