@@ -117,12 +117,18 @@ export interface DeployResult {
 
 export type DiagnosisLevel = "info" | "warn" | "error";
 
+/**
+ * `code` is a stable slug; the UI renders title/suggestions from
+ * `diagnosis.<code>.*` i18n keys. Expected codes: tokenMismatch, authFailed,
+ * versionMismatch, portConflict, connectionRefused, dnsFailed,
+ * localServiceDown, binaryMissing, remoteServerUnreachable, genericError,
+ * allHealthy.
+ */
 export interface Diagnosis {
   tunnelId: string;
+  code: string;
   level: DiagnosisLevel;
-  title: string;
   detail: string;
-  suggestions: string[];
 }
 
 /** Event "tunnel://state" payload — emitted on every status transition. */

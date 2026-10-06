@@ -234,12 +234,15 @@ pub enum DiagnosisLevel {
     Error,
 }
 
+/// One-click diagnosis result. `code` is a stable machine-readable slug;
+/// the frontend renders title/suggestions from its i18n dictionary
+/// (`diagnosis.<code>.title` / `.detail` / `.suggestions`). `detail`
+/// carries the raw evidence (a relevant log line) for context.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Diagnosis {
     pub tunnel_id: String,
+    pub code: String,
     pub level: DiagnosisLevel,
-    pub title: String,
     pub detail: String,
-    pub suggestions: Vec<String>,
 }
