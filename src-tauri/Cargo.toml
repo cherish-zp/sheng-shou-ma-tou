@@ -1,8 +1,10 @@
 [package]
 name = "pier"
 version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+description = "An open-source, polished desktop tunneling tool — expose local ports to the internet in one click."
+authors = ["cherish-zp"]
+license = "MIT"
+repository = "https://github.com/cherish-zp/MasterfulHandsPier"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

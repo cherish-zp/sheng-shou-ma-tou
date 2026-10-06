@@ -1,7 +1,9 @@
 # Pier 构建与发布流水线（Tauri 2 + tauri-action）
 #
 # 触发：
-#   - push tag `v*`  -> 构建三平台产物并创建 GitHub Release（草稿，人工复核后发布）
+#   - push tag `v*`  -> 构建四平台产物并直接创建 GitHub Release，
+#                       随后把 Release 附件同步到 Gitee（需配置 GITEE_TOKEN secret，
+#                       未配置时自动跳过，可运行 scripts/sync-gitee-release.sh 本地兜底）
 #   - workflow_dispatch -> 仅构建并上传 workflow artifacts（手动验证用）
 #
 # 签名/公证：目前为占位。在仓库 Settings -> Secrets 配置好 APPLE_CERTIFICATE 等
@@ -147,7 +149,8 @@ jobs:
           tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
           releaseName: ${{ startsWith(github.ref, 'refs/tags/v') && 'Pier v__VERSION__' || '' }}
           releaseBody: '从下方 Assets 下载对应平台的安装包。更新内容见 [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md)。'
-          releaseDraft: true
+          # 直接发布（dataBasePro 同款链路）：tag 推送即出正式 Release
+          releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
 
@@ -157,7 +160,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pier-${{ matrix.slug }}
-          if-no-files-found: warn
+          if-no-files-found: error
           path: |
             src-tauri/target/*/release/bundle/dmg/*.dmg
             src-tauri/target/*/release/bundle/macos/*.app.tar.gz
@@ -166,3 +169,68 @@ jobs:
             src-tauri/target/release/bundle/deb/*.deb
             src-tauri/target/release/bundle/rpm/*.rpm
             src-tauri/target/release/bundle/appimage/*.AppImage
+
+  # ---------- Gitee 同步（dataBasePro 模式）----------
+  # GitHub Release 发布后，把附件同步到 Gitee Release。全程 best-effort：
+  # 未配置 GITEE_TOKEN 时跳过；同步失败不阻塞 GitHub 发布（可用
+  # scripts/sync-gitee-release.sh 本地兜底）。
+  sync-gitee:
+    name: Sync release to Gitee
+    needs: build
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+      GITEE_OWNER: princess-zp
+      GITEE_REPO: MasterfulHandsPier
+      TAG: ${{ github.ref_name }}
+    steps:
+      - name: Skip when GITEE_TOKEN is not configured
+        if: env.GITEE_TOKEN == ''
+        run: echo "::notice::GITEE_TOKEN 未配置，跳过 Gitee 同步（可用 scripts/sync-gitee-release.sh 本地兜底）"
+
+      - name: Sync assets to Gitee release
+        if: env.GITEE_TOKEN != ''
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          API="https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}"
+
+          # 1) GitHub Release 正文（tauri-action 已生成）
+          BODY=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body)
+
+          # 2) Gitee Release：存在则复用，不存在则创建（幂等）
+          RELEASE_ID=$(curl -sf --connect-timeout 20 "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases/tags/${TAG}?access_token=${GITEE_TOKEN}" | jq -r '.id // empty' || true)
+          if [ -z "${RELEASE_ID}" ]; then
+            echo "Creating Gitee release ${TAG}..."
+            PAYLOAD=$(jq -n --arg tag "$TAG" --arg body "$BODY" \
+              '{tag_name: $tag, name: ("Pier " + $tag), body: $body, prerelease: false, target_commitish: "main"}')
+            RELEASE_ID=$(curl -sf --connect-timeout 20 -X POST "${API}/releases?access_token=${GITEE_TOKEN}" \
+              -H 'Content-Type: application/json' -d "$PAYLOAD" | jq -r '.id')
+          fi
+          echo "Gitee release id: ${RELEASE_ID}"
+
+          # 3) 下载 GitHub Release 全部附件
+          rm -rf dist && mkdir -p dist
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir dist
+
+          # 4) 幂等上传：同名附件跳过，其余重试 4 次、间隔 30s
+          EXISTING=$(curl -sf "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases/${RELEASE_ID}/attach_files?access_token=${GITEE_TOKEN}" | jq -r '.[].browser_download_url' | xargs -r -n1 basename || true)
+          for f in dist/*; do
+            NAME=$(basename "$f")
+            if echo "$EXISTING" | grep -qx "$NAME"; then
+              echo "skip existing: $NAME"; continue
+            fi
+            for i in 1 2 3 4; do
+              echo "upload $NAME (attempt $i)..."
+              if curl -sf --connect-timeout 20 --max-time 1800 \
+                   -X POST "${API}/releases/${RELEASE_ID}/attach_files?access_token=${GITEE_TOKEN}" \
+                   -F "file=@${f}"; then
+                echo "uploaded: $NAME"; break
+              fi
+              [ "$i" = 4 ] && echo "::error::failed to upload $NAME to Gitee"
+              sleep 30
+            done
+          done
