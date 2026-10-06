@@ -29,6 +29,16 @@ thiserror = "2.0.21"
 chrono = { version = "0.4.45", features = ["serde"] }
 tauri-plugin-autostart = "2.7.0"
 tauri-plugin-single-instance = "2.5.2"
+# Engine binary downloader (binman). reqwest 0.13 is already in the lock file
+# (transitive dep of tauri); TLS: `native-tls` maps to schannel on Windows and
+# Security.framework on macOS — no external build tools on either platform
+# (reqwest 0.13 dropped the old `rustls-tls` feature; its `rustls` feature now
+# pulls aws-lc-rs, which needs NASM on Windows MSVC).
+reqwest = { version = "0.13", default-features = false, features = ["stream", "native-tls", "system-proxy"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+tar = "0.4"
+flate2 = "1"
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

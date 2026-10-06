@@ -32,6 +32,11 @@ pub fn run() {
             commands::read_binary_status,
             commands::install_binary,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        .run(|app_handle, event| {
+            if let tauri::RunEvent::Exit = event {
+                commands::shutdown(app_handle);
+            }
+        });
 }

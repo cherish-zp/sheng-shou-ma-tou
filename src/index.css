@@ -104,3 +104,31 @@
       "PingFang SC", "Microsoft YaHei", "Helvetica Neue", sans-serif;
   }
 }
+
+/* ---------- Pier global additions ---------- */
+
+/* Selection in brand tint */
+::selection {
+  background: color-mix(in oklch, var(--success) 28%, transparent);
+}
+
+/* Thin, unobtrusive scrollbars for log panes and the main area */
+.pier-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklch, var(--foreground) 22%, transparent)
+    transparent;
+}
+.pier-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.pier-scroll::-webkit-scrollbar-thumb {
+  border-radius: 9999px;
+  background: color-mix(in oklch, var(--foreground) 18%, transparent);
+}
+.pier-scroll::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in oklch, var(--foreground) 30%, transparent);
+}
+.pier-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}

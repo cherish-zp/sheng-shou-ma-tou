@@ -1,0 +1,128 @@
+{
+  "app": {
+    "name": "Pier",
+    "tagline": "Tunnel to your localhost"
+  },
+  "nav": {
+    "tunnels": "Tunnels",
+    "settings": "Settings"
+  },
+  "common": {
+    "copy": "Copy",
+    "copied": "Copied to clipboard",
+    "copyFailed": "Copy failed",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "save": "Save",
+    "confirm": "Confirm",
+    "back": "Back",
+    "close": "Close",
+    "dash": "—"
+  },
+  "status": {
+    "stopped": "Stopped",
+    "starting": "Starting",
+    "running": "Running",
+    "reconnecting": "Reconnecting",
+    "error": "Error"
+  },
+  "home": {
+    "title": "Tunnels",
+    "subtitle": "Expose local services to the internet",
+    "newTunnel": "New Tunnel",
+    "tunnelCount": "{{n}} tunnels",
+    "emptyTitle": "No tunnels yet",
+    "emptyDescription": "Create a tunnel to turn a local service into a shareable public URL.",
+    "emptyCta": "Create your first tunnel"
+  },
+  "card": {
+    "backendCloudflare": "Cloudflare",
+    "backendBore": "bore",
+    "waitingUrl": "Waiting for a public URL…",
+    "noUrl": "No public URL",
+    "traffic": "Traffic",
+    "uptime": "Started",
+    "notStarted": "Not started",
+    "start": "Start",
+    "stop": "Stop",
+    "logs": "Logs",
+    "viewLogs": "View logs",
+    "editTunnel": "Edit tunnel",
+    "deleteTunnel": "Delete tunnel",
+    "deleteTitle": "Delete this tunnel?",
+    "deleteDescription": "“{{name}}” will be removed permanently, and any active connections will be dropped.",
+    "deleteSuccess": "Deleted “{{name}}”",
+    "startFailed": "Failed to start",
+    "stopFailed": "Failed to stop",
+    "deleteFailed": "Failed to delete"
+  },
+  "add": {
+    "createTitle": "New Tunnel",
+    "editTitle": "Edit Tunnel",
+    "chooseType": "Choose a tunnel type",
+    "step": "Step {{current}} of {{total}}",
+    "httpTitle": "HTTP Web Service",
+    "httpDescription": "Give a website or API a temporary public URL. Great for demos and webhooks.",
+    "tcpTitle": "TCP Service",
+    "tcpDescription": "Any TCP service: SSH, remote desktop, databases and more.",
+    "formTitle": "Service details",
+    "name": "Name",
+    "namePlaceholder": "Leave empty to auto-name as port-{{port}}",
+    "localHost": "Local host",
+    "localPort": "Local port",
+    "portPlaceholder": "e.g. 3000",
+    "backendMappingHttp": "Forwarded through a Cloudflare quick tunnel (no account needed)",
+    "backendMappingTcp": "Forwarded through the bore public relay (no account needed)",
+    "submitCreate": "Create & Start",
+    "submitEdit": "Save Changes",
+    "creating": "Creating…",
+    "createFailed": "Failed to create tunnel",
+    "createSuccess": "Tunnel “{{name}}” started",
+    "updateFailed": "Failed to save changes",
+    "updateSuccess": "Changes saved",
+    "portRequired": "Enter a port between 1 and 65535",
+    "hostRequired": "Enter a local host"
+  },
+  "logs": {
+    "title": "Logs",
+    "empty": "No logs yet. Start the tunnel and its output will stream in here."
+  },
+  "qr": {
+    "title": "Scan to Open",
+    "description": "Scan with your phone to open this URL"
+  },
+  "settings": {
+    "title": "Settings",
+    "appearance": "Appearance",
+    "appearanceDescription": "Choose how Pier looks on your device",
+    "themeSystem": "System",
+    "themeLight": "Light",
+    "themeDark": "Dark",
+    "language": "Language",
+    "languageDescription": "Language used across the interface",
+    "autostart": "Launch at Login",
+    "autostartDescription": "Start Pier automatically in the background when you log in",
+    "autostartFailed": "Could not read autostart state",
+    "autostartChangeFailed": "Failed to change autostart",
+    "engines": "Engines",
+    "enginesDescription": "Command-line tools the tunnels rely on. Install one to create tunnels of that type.",
+    "engineCloudflare": "Cloudflare engine",
+    "engineCloudflareDescription": "cloudflared, used for HTTP quick tunnels",
+    "engineBore": "bore engine",
+    "engineBoreDescription": "bore, used for TCP tunnels",
+    "installed": "Installed",
+    "notInstalled": "Not installed",
+    "install": "Install",
+    "reinstall": "Reinstall",
+    "installing": "Installing…",
+    "installFailed": "Engine installation failed",
+    "installSuccess": "Engine installed",
+    "versionUnknown": "unknown version",
+    "loadFailed": "Failed to load engine status"
+  },
+  "errors": {
+    "loadFailed": "Failed to load tunnels",
+    "unknown": "Something went wrong"
+  }
+}

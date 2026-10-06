@@ -1,0 +1,128 @@
+{
+  "app": {
+    "name": "Pier",
+    "tagline": "内网穿透"
+  },
+  "nav": {
+    "tunnels": "隧道",
+    "settings": "设置"
+  },
+  "common": {
+    "copy": "复制",
+    "copied": "已复制到剪贴板",
+    "copyFailed": "复制失败",
+    "cancel": "取消",
+    "delete": "删除",
+    "edit": "编辑",
+    "save": "保存",
+    "confirm": "确认",
+    "back": "上一步",
+    "close": "关闭",
+    "dash": "—"
+  },
+  "status": {
+    "stopped": "已停止",
+    "starting": "启动中",
+    "running": "运行中",
+    "reconnecting": "重连中",
+    "error": "错误"
+  },
+  "home": {
+    "title": "隧道",
+    "subtitle": "把本机服务安全地暴露到公网",
+    "newTunnel": "新建隧道",
+    "tunnelCount": "共 {{n}} 条隧道",
+    "emptyTitle": "还没有隧道",
+    "emptyDescription": "创建一条隧道，把本地正在运行的服务变成一个可以分享的公网地址。",
+    "emptyCta": "新建第一条隧道"
+  },
+  "card": {
+    "backendCloudflare": "Cloudflare",
+    "backendBore": "bore",
+    "waitingUrl": "等待分配公网地址…",
+    "noUrl": "未获得公网地址",
+    "traffic": "流量",
+    "uptime": "启动时间",
+    "notStarted": "未启动",
+    "start": "启动",
+    "stop": "停止",
+    "logs": "日志",
+    "viewLogs": "查看日志",
+    "editTunnel": "编辑隧道",
+    "deleteTunnel": "删除隧道",
+    "deleteTitle": "删除这条隧道？",
+    "deleteDescription": "「{{name}}」将被永久移除，正在运行的连接也会中断。",
+    "deleteSuccess": "已删除「{{name}}」",
+    "startFailed": "启动失败",
+    "stopFailed": "停止失败",
+    "deleteFailed": "删除失败"
+  },
+  "add": {
+    "createTitle": "新建隧道",
+    "editTitle": "编辑隧道",
+    "chooseType": "选择隧道类型",
+    "step": "第 {{current}} 步 / 共 {{total}} 步",
+    "httpTitle": "HTTP Web 服务",
+    "httpDescription": "给网站或接口一个临时公网网址，适合演示、联调与 webhook。",
+    "tcpTitle": "TCP 服务",
+    "tcpDescription": "SSH、远程桌面、数据库等任意 TCP 服务。",
+    "formTitle": "填写服务信息",
+    "name": "名称",
+    "namePlaceholder": "留空则自动命名为 port-{{port}}",
+    "localHost": "本地地址",
+    "localPort": "本地端口",
+    "portPlaceholder": "例如 3000",
+    "backendMappingHttp": "将通过 Cloudflare 快速隧道转发（无需注册账号）",
+    "backendMappingTcp": "将通过 bore 公网中继转发（无需注册账号）",
+    "submitCreate": "创建并启动",
+    "submitEdit": "保存修改",
+    "creating": "创建中…",
+    "createFailed": "创建隧道失败",
+    "createSuccess": "隧道「{{name}}」已启动",
+    "updateFailed": "保存修改失败",
+    "updateSuccess": "修改已保存",
+    "portRequired": "请输入 1 - 65535 之间的端口号",
+    "hostRequired": "请输入本地地址"
+  },
+  "logs": {
+    "title": "运行日志",
+    "empty": "暂无日志。启动隧道后，进程输出会实时显示在这里。"
+  },
+  "qr": {
+    "title": "扫码访问",
+    "description": "用手机扫描二维码打开该地址"
+  },
+  "settings": {
+    "title": "设置",
+    "appearance": "外观",
+    "appearanceDescription": "选择 Pier 的界面主题",
+    "themeSystem": "跟随系统",
+    "themeLight": "浅色",
+    "themeDark": "深色",
+    "language": "语言",
+    "languageDescription": "界面显示语言",
+    "autostart": "开机自启",
+    "autostartDescription": "登录系统时自动在后台启动 Pier",
+    "autostartFailed": "无法获取开机自启状态",
+    "autostartChangeFailed": "修改开机自启失败",
+    "engines": "引擎",
+    "enginesDescription": "隧道依赖的命令行工具，安装后即可创建对应类型的隧道",
+    "engineCloudflare": "Cloudflare 引擎",
+    "engineCloudflareDescription": "cloudflared，用于 HTTP 快速隧道",
+    "engineBore": "bore 引擎",
+    "engineBoreDescription": "bore，用于 TCP 隧道",
+    "installed": "已安装",
+    "notInstalled": "未安装",
+    "install": "安装",
+    "reinstall": "重装",
+    "installing": "安装中…",
+    "installFailed": "引擎安装失败",
+    "installSuccess": "引擎安装完成",
+    "versionUnknown": "未知版本",
+    "loadFailed": "加载引擎状态失败"
+  },
+  "errors": {
+    "loadFailed": "加载隧道列表失败",
+    "unknown": "发生未知错误"
+  }
+}
