@@ -450,11 +450,11 @@ struct ConnGuard(Arc<AtomicU32>);
 
 impl Drop for ConnGuard {
     fn drop(&mut self) {
-        // saturating_sub via fetch_update: an in-flight decrement racing a
-        // forced `store` must never wrap the counter around.
+        // saturating_sub via CAS: an in-flight decrement racing a forced
+        // `store` must never wrap the counter around.
         let _ = self
             .0
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
                 Some(v.saturating_sub(1))
             });
     }
