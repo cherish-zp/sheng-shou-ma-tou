@@ -340,11 +340,12 @@
         ]
       },
       "binaryMissing": {
-        "title": "frpc not installed",
-        "detail": "The frpc engine is missing on this machine, so frp tunnels cannot start.",
+        "title": "Tunnel engine not installed",
+        "detail": "The engine required by this tunnel (cloudflared / bore / frpc) is missing on this machine.",
         "suggestions": [
-          "Install frpc under Settings → Engines",
-          "Restart the tunnel once the installation finishes"
+          "Pier usually downloads missing engines automatically at start — check your network and retry",
+          "You can also install the engine manually in “Settings → Engines”",
+          "Restart the tunnel once the engine is installed"
         ]
       },
       "remoteServerUnreachable": {

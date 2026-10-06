@@ -492,11 +492,47 @@ async fn run_attempt(engine: &Engine, handle: &TunnelHandle, cfg: &TunnelConfig)
     }
     let binary = match binman::resolve(&engine.app, cfg.backend) {
         Ok(path) => path,
-        Err(e) => {
-            return AttemptOutcome {
-                had_url: false,
-                fatal: Some(e),
-                error: None,
+        Err(_) => {
+            // Self-heal: the engine binary is missing (fresh install, new
+            // machine). Download it on the spot instead of bouncing the user
+            // to Settings — any start path (UI, tray, autostart) recovers.
+            handle.emit_log(
+                &cfg.id,
+                "info",
+                "engine binary not found; downloading automatically (首次使用正在自动下载引擎)…",
+            );
+            let app = engine.app.clone();
+            let backend = cfg.backend;
+            let installed = tauri::async_runtime::spawn_blocking(move || {
+                binman::install(&app, backend)
+            })
+            .await
+            .map_err(|e| format!("install task failed: {e}"))
+            .and_then(|r| r);
+            match installed {
+                Ok(info) => handle.emit_log(
+                    &cfg.id,
+                    "info",
+                    &format!(
+                        "engine installed ({}) — starting tunnel",
+                        info.version.unwrap_or_default()
+                    ),
+                ),
+                Err(e) => handle.emit_log(
+                    &cfg.id,
+                    "error",
+                    &format!("engine auto-install failed: {e}"),
+                ),
+            }
+            match binman::resolve(&engine.app, cfg.backend) {
+                Ok(path) => path,
+                Err(e) => {
+                    return AttemptOutcome {
+                        had_url: false,
+                        fatal: Some(e),
+                        error: None,
+                    };
+                }
             }
         }
     };

@@ -340,10 +340,11 @@
         ]
       },
       "binaryMissing": {
-        "title": "frpc 未安装",
-        "detail": "本机缺少 frpc 引擎，无法建立 frp 隧道。",
+        "title": "隧道引擎未安装",
+        "detail": "本机缺少该隧道所需的引擎（cloudflared / bore / frpc），无法启动。",
         "suggestions": [
-          "前往「设置 → 引擎」安装 frpc",
+          "Pier 通常会在启动时自动下载缺失的引擎，请检查网络后重试",
+          "也可前往「设置 → 引擎」手动安装对应引擎",
           "安装完成后重新启动该隧道"
         ]
       },
