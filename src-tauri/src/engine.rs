@@ -496,7 +496,7 @@ async fn run_attempt(engine: &Engine, handle: &TunnelHandle, cfg: &TunnelConfig)
             // Self-heal: the engine binary is missing (fresh install, new
             // machine). Download it on the spot instead of bouncing the user
             // to Settings — any start path (UI, tray, autostart) recovers.
-            handle.emit_log(
+            engine.emit_log(
                 &cfg.id,
                 "info",
                 "engine binary not found; downloading automatically (首次使用正在自动下载引擎)…",
@@ -510,7 +510,7 @@ async fn run_attempt(engine: &Engine, handle: &TunnelHandle, cfg: &TunnelConfig)
             .map_err(|e| format!("install task failed: {e}"))
             .and_then(|r| r);
             match installed {
-                Ok(info) => handle.emit_log(
+                Ok(info) => engine.emit_log(
                     &cfg.id,
                     "info",
                     &format!(
@@ -518,7 +518,7 @@ async fn run_attempt(engine: &Engine, handle: &TunnelHandle, cfg: &TunnelConfig)
                         info.version.unwrap_or_default()
                     ),
                 ),
-                Err(e) => handle.emit_log(
+                Err(e) => engine.emit_log(
                     &cfg.id,
                     "error",
                     &format!("engine auto-install failed: {e}"),
@@ -873,6 +873,8 @@ mod tests {
                 "tunnel".to_string(),
                 "--url".to_string(),
                 "http://127.0.0.1:41234".to_string(),
+                "--protocol".to_string(),
+                "http2".to_string(),
                 "--no-autoupdate".to_string(),
             ]
         );
