@@ -70,6 +70,8 @@ jobs:
     runs-on: ${{ matrix.platform }}
     permissions:
       contents: write # tauri-action 创建 Release 需要写权限
+      issues: write # 构建失败时把日志开成 Issue（匿名可读，便于远程排障）
+      actions: read # gh run view --log-failed 读取失败日志
     strategy:
       fail-fast: false
       matrix:
@@ -169,6 +171,31 @@ jobs:
             src-tauri/target/release/bundle/deb/*.deb
             src-tauri/target/release/bundle/rpm/*.rpm
             src-tauri/target/release/bundle/appimage/*.AppImage
+
+      # 失败诊断：把失败步骤的日志尾部开成公开 Issue（Actions 日志对
+      # 未登录访客不可见，Issue 让远程协作者无需登录即可定位）
+      - name: Open diagnostic issue on failure
+        if: ${{ failure() }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_JOB_ID: ${{ github.job }}
+        run: |
+          LOGS=$(gh run view "$GITHUB_RUN_ID" --job "$GITHUB_JOB_ID" --log-failed 2>/dev/null | tail -120 || echo "log fetch failed")
+          {
+            echo "平台: ${{ matrix.slug }}"
+            echo "运行: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo ""
+            echo '<details><summary>失败日志（最后 120 行）</summary>'
+            echo ""
+            echo '```'
+            echo "$LOGS"
+            echo '```'
+            echo '</details>'
+          } > body.md
+          gh issue create \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "[CI] ${{ matrix.slug }} 构建失败 @ ${{ github.ref_name }} (${{ github.run_id }})" \
+            --body-file body.md || echo "::warning::diagnostic issue creation failed"
 
   # ---------- Gitee 同步（dataBasePro 模式）----------
   # GitHub Release 发布后，把附件同步到 Gitee Release。全程 best-effort：
