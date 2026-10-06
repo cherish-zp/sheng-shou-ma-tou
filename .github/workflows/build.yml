@@ -134,16 +134,20 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # ---- macOS 签名 + 公证（待配置 Apple Developer 账号后启用）----
-          # 在 GitHub Secrets 中配置以下项后自动生效；未配置时为空，bundler 自动跳过签名
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}                 # base64 的 .p12 开发者证书
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}       # e.g. "Developer ID Application: ... (TEAMID)"
-          APPLE_ID: ${{ secrets.APPLE_ID }}                                   # 公证用 Apple ID
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}                       # App 专用密码
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          # ---- Windows 代码签名（待购买 EV/OV 证书后启用，见 docs/RELEASE.md）----
-          # TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}           # 更新器私钥（启用 updater 后）
+          # ---- macOS 签名 + 公证（购买 Apple Developer 账号后按 docs/RELEASE.md 加回）----
+          # 注意：不要以空字符串形式保留这些 env——secret 不存在时
+          # `${{ secrets.X }}` 仍会把变量设置为空串，Tauri bundler 检测到
+          # APPLE_CERTIFICATE 存在（哪怕为空）就会尝试导入证书并直接失败
+          # （实测：SecKeychainItemImport ... parameters not valid）。
+          # 启用签名时取消注释以下行并配置对应 secrets：
+          # APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          # APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          # APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # APPLE_ID: ${{ secrets.APPLE_ID }}
+          # APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # ---- Windows 代码签名与更新器（启用时取消注释，见 docs/RELEASE.md）----
+          # TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           # TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: .
