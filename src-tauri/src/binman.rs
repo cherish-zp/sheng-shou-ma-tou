@@ -52,6 +52,13 @@ pub fn binary_file_name(backend: Backend) -> &'static str {
                 "bore"
             }
         }
+        Backend::Frp => {
+            if cfg!(target_os = "windows") {
+                "frpc.exe"
+            } else {
+                "frpc"
+            }
+        }
     }
 }
 
@@ -61,6 +68,7 @@ fn archive_inner_name(backend: Backend) -> &'static str {
     match backend {
         Backend::Cloudflare => "cloudflared",
         Backend::Bore => "bore",
+        Backend::Frp => "frpc",
     }
 }
 
@@ -245,6 +253,10 @@ async fn install_to_dir(dir: &Path, backend: Backend) -> Result<PathBuf, String>
             })?;
             let url = format!("{CLOUDFLARED_LATEST_URL}/{asset}");
             (asset.to_string(), url)
+        }
+        // frpc download mapping (fatedier/frp release assets) lands with M2.
+        Backend::Frp => {
+            return Err("frpc download is not implemented yet".into());
         }
         Backend::Bore => {
             let release = fetch_latest_bore_release().await?;

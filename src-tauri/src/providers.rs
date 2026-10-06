@@ -42,6 +42,9 @@ pub fn build_args(cfg: &TunnelConfig) -> Vec<String> {
             BORE_DEFAULT_SERVER.to_string(),
             cfg.local_port.to_string(),
         ],
+        // Frp tunnels spawn `frpc -c <generated config file>`; the real
+        // implementation lives with the M2 frp provider.
+        Backend::Frp => vec![],
     }
 }
 
@@ -61,6 +64,8 @@ pub fn parse_public_endpoint(backend: Backend, line: &str) -> Option<String> {
         Backend::Cloudflare => extract_quick_tunnel_url(line),
         Backend::Bore => extract_bore_endpoint(line)
             .or_else(|| extract_remote_port(line).map(|p| format!("{BORE_DEFAULT_SERVER}:{p}"))),
+        // Real parsing (frpc "start proxy success" lines) lands with M2.
+        Backend::Frp => None,
     }
 }
 
@@ -226,6 +231,8 @@ pub fn is_error_line(backend: Backend, line: &str) -> bool {
     match backend {
         Backend::Cloudflare => CLOUDFLARE_ERROR_MARKERS.iter().any(|m| lower.contains(m)),
         Backend::Bore => BORE_ERROR_MARKERS.iter().any(|m| lower.contains(m)),
+        // Refined markers land with the M2 frp provider.
+        Backend::Frp => lower.contains("error") || lower.contains("failed"),
     }
 }
 
@@ -264,6 +271,9 @@ mod tests {
             local_port: port,
             auto_start: false,
             created_at: String::new(),
+            server_id: None,
+            subdomain: None,
+            remote_port: None,
         }
     }
 

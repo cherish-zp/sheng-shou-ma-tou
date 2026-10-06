@@ -178,6 +178,7 @@ fn backend_label(backend: Backend) -> &'static str {
     match backend {
         Backend::Cloudflare => "cloudflare",
         Backend::Bore => "bore",
+        Backend::Frp => "frp",
     }
 }
 

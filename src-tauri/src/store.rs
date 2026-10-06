@@ -123,6 +123,9 @@ mod tests {
             local_port: port,
             auto_start: false,
             created_at: "2026-10-06T00:00:00+00:00".to_string(),
+            server_id: None,
+            subdomain: None,
+            remote_port: None,
         }
     }
 

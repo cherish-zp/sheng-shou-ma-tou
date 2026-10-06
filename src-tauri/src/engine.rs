@@ -164,6 +164,13 @@ impl Engine {
             .map(|h| h.snapshot())
     }
 
+    /// Most recent `max` log lines for a tunnel (oldest first), for the
+    /// diagnostics engine. Implemented with the M2 log ring buffer; empty
+    /// until then.
+    pub fn recent_logs(&self, _id: &str, _max: usize) -> Vec<String> {
+        Vec::new()
+    }
+
     /// Start (or resume retrying) a tunnel. Returns the state right after
     /// kickoff (usually Starting). No-op when already active.
     pub async fn start(self: Arc<Self>, cfg: TunnelConfig) -> Result<TunnelState, String> {

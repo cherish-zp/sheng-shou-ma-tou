@@ -3,7 +3,7 @@
 
 export type TunnelType = "http" | "tcp";
 
-export type Backend = "cloudflare" | "bore";
+export type Backend = "cloudflare" | "bore" | "frp";
 
 export type TunnelStatus =
   | "stopped"
@@ -21,6 +21,12 @@ export interface TunnelConfig {
   localPort: number;
   autoStart: boolean;
   createdAt: string;
+  /** Frp tunnels only: which Pier-managed server this tunnel runs through. */
+  serverId?: string | null;
+  /** Frp HTTP tunnels only: subdomain under the server's subdomainHost. */
+  subdomain?: string | null;
+  /** Frp TCP tunnels only: public port allocated on the server. */
+  remotePort?: number | null;
 }
 
 export interface TunnelState {
@@ -43,6 +49,80 @@ export interface BinaryInfo {
 export interface BinaryStatus {
   cloudflare: BinaryInfo;
   bore: BinaryInfo;
+}
+
+// ---------------------------------------------------------------------------
+// M2: servers (self-hosted frps), import, diagnosis
+// ---------------------------------------------------------------------------
+
+export type AuthKind = "password" | "keypath";
+
+export interface ServerConfig {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  username: string;
+  authKind: AuthKind;
+  frpsBindPort: number;
+  frpsVhostHttpPort: number;
+  frpsVhostHttpsPort: number;
+  frpsDashboardPort: number;
+  subdomainHost: string | null;
+  deployed: boolean;
+  frpsVersion: string | null;
+  createdAt: string;
+}
+
+/** Input for creating a server; `secret` is moved into the OS keychain. */
+export interface ServerInput {
+  name: string;
+  host: string;
+  port: number;
+  username: string;
+  authKind: AuthKind;
+  secret: string;
+  frpsBindPort?: number;
+  frpsVhostHttpPort?: number;
+  frpsVhostHttpsPort?: number;
+  frpsDashboardPort?: number;
+  subdomainHost?: string | null;
+}
+
+export interface ServerStatus {
+  serverId: string;
+  reachable: boolean;
+  frpsRunning: boolean;
+  frpsVersion: string | null;
+  detail: string | null;
+}
+
+export type StepStatus = "running" | "ok" | "fail" | "skip";
+
+/** Event "deploy://progress" payload — one deployment step update. */
+export interface DeployProgressEvent {
+  serverId: string;
+  step: string;
+  status: StepStatus;
+  message: string | null;
+}
+
+export interface DeployResult {
+  serverId: string;
+  ok: boolean;
+  error: string | null;
+  /** Random frps token generated during deployment. */
+  token: string | null;
+}
+
+export type DiagnosisLevel = "info" | "warn" | "error";
+
+export interface Diagnosis {
+  tunnelId: string;
+  level: DiagnosisLevel;
+  title: string;
+  detail: string;
+  suggestions: string[];
 }
 
 /** Event "tunnel://state" payload — emitted on every status transition. */

@@ -212,3 +212,117 @@ pub fn install_binary(
     }
     crate::binman::read_status(&state.app)
 }
+
+// ---------------------------------------------------------------------------
+// M2: servers (self-hosted frps), frpc import, diagnosis
+// ---------------------------------------------------------------------------
+
+use crate::models::{DeployResult, Diagnosis, ServerConfig, ServerInput, ServerStatus};
+
+#[tauri::command]
+pub fn list_servers(app: AppHandle) -> Vec<ServerConfig> {
+    crate::servers_store::load_servers(&app)
+}
+
+#[tauri::command]
+pub fn add_server(app: AppHandle, input: ServerInput) -> Result<ServerConfig, String> {
+    if input.host.trim().is_empty() || input.username.trim().is_empty() {
+        return Err("host and username are required".into());
+    }
+    let server = ServerConfig {
+        id: uuid::Uuid::new_v4().to_string(),
+        name: if input.name.trim().is_empty() {
+            input.host.clone()
+        } else {
+            input.name.trim().to_string()
+        },
+        host: input.host.trim().to_string(),
+        port: input.port,
+        username: input.username.trim().to_string(),
+        auth_kind: input.auth_kind,
+        frps_bind_port: input.frps_bind_port.unwrap_or(7000),
+        frps_vhost_http_port: input.frps_vhost_http_port.unwrap_or(8080),
+        frps_vhost_https_port: input.frps_vhost_https_port.unwrap_or(8443),
+        frps_dashboard_port: input.frps_dashboard_port.unwrap_or(7500),
+        subdomain_host: input.subdomain_host.map(|s| s.trim().to_string()),
+        deployed: false,
+        frps_version: None,
+        created_at: chrono::Utc::now().to_rfc3339(),
+    };
+    crate::servers_store::set_ssh_secret(&app, &server.id, &input.secret)?;
+    crate::servers_store::save_server(&app, &server)?;
+    Ok(server)
+}
+
+#[tauri::command]
+pub fn remove_server(app: AppHandle, id: String) -> Result<(), String> {
+    crate::servers_store::remove_server(&app, &id).map(|_| ())
+}
+
+#[tauri::command]
+pub async fn test_server(app: AppHandle, id: String) -> Result<ServerStatus, String> {
+    let server = crate::servers_store::load_servers(&app)
+        .into_iter()
+        .find(|s| s.id == id)
+        .ok_or_else(|| "server not found".to_string())?;
+    // Connection probe lives in the SSH layer; deploy module owns it.
+    let reachable = crate::frp_deploy::status(&app, server).await.is_ok();
+    Ok(ServerStatus {
+        server_id: id,
+        reachable,
+        frps_running: false,
+        frps_version: None,
+        detail: None,
+    })
+}
+
+/// Kick off deployment in the background; progress arrives via the
+/// "deploy://progress" events and completion via "deploy://done".
+#[tauri::command]
+pub async fn deploy_server(app: AppHandle, id: String) -> Result<DeployResult, String> {
+    let server = crate::servers_store::load_servers(&app)
+        .into_iter()
+        .find(|s| s.id == id)
+        .ok_or_else(|| "server not found".to_string())?;
+    let handle = tauri::async_runtime::spawn(crate::frp_deploy::deploy(app.clone(), server));
+    handle
+        .await
+        .map_err(|e| format!("deploy task failed: {e}"))
+}
+
+#[tauri::command]
+pub async fn undeploy_server(app: AppHandle, id: String) -> Result<(), String> {
+    let server = crate::servers_store::load_servers(&app)
+        .into_iter()
+        .find(|s| s.id == id)
+        .ok_or_else(|| "server not found".to_string())?;
+    crate::frp_deploy::undeploy(&app, server).await
+}
+
+#[tauri::command]
+pub async fn get_server_status(app: AppHandle, id: String) -> Result<ServerStatus, String> {
+    let server = crate::servers_store::load_servers(&app)
+        .into_iter()
+        .find(|s| s.id == id)
+        .ok_or_else(|| "server not found".to_string())?;
+    let frps_running = crate::frp_deploy::status(&app, server.clone()).await.unwrap_or(false);
+    Ok(ServerStatus {
+        server_id: id,
+        reachable: true,
+        frps_running,
+        frps_version: server.frps_version,
+        detail: None,
+    })
+}
+
+#[tauri::command]
+pub fn import_frpc_config(text: String, server_id: Option<String>) -> Result<Vec<TunnelConfig>, String> {
+    crate::frp_import::parse_frpc_config(&text, server_id.as_deref())
+}
+
+#[tauri::command]
+pub fn diagnose_tunnel(state: State<'_, AppState>, id: String) -> Result<Diagnosis, String> {
+    let snap = state.engine.snapshot(&id).ok_or("tunnel not found")?;
+    let logs = state.engine.recent_logs(&id, 200);
+    Ok(crate::diagnostics::diagnose(&id, snap.error.as_deref(), &logs))
+}
