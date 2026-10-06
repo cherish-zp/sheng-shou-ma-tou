@@ -568,6 +568,8 @@ mod tests {
             server_id: None,
             subdomain: None,
             remote_port: None,
+            auth: None,
+            ip_allowlist: Vec::new(),
         }
     }
 
@@ -793,6 +795,8 @@ mod tests {
             server_id: Some("srv1".into()),
             subdomain: None,
             remote_port: None,
+            auth: None,
+            ip_allowlist: Vec::new(),
         }
     }
 

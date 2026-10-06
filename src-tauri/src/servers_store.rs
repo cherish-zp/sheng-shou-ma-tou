@@ -44,7 +44,10 @@ pub fn load_servers(app: &tauri::AppHandle) -> Vec<ServerConfig> {
         Ok(text) => match serde_json::from_str(&text) {
             Ok(servers) => servers,
             Err(e) => {
-                eprintln!("[pier] {} is corrupted ({e}); treating as empty", path.display());
+                eprintln!(
+                    "[pier] {} is corrupted ({e}); treating as empty",
+                    path.display()
+                );
                 Vec::new()
             }
         },
@@ -136,7 +139,9 @@ fn open_entry(account: &str) -> Result<keyring::Entry, String> {
 fn get_keyring_secret(account: &str) -> Result<String, String> {
     let entry = open_entry(account)?;
     entry.get_password().map_err(|e| match e {
-        keyring::Error::NoEntry => format!("钥匙串中未保存 {account} 对应的秘密（尚未设置或已被删除）"),
+        keyring::Error::NoEntry => {
+            format!("钥匙串中未保存 {account} 对应的秘密（尚未设置或已被删除）")
+        }
         other => format!("读取钥匙串失败（{account}）：{other}"),
     })
 }
@@ -184,11 +189,7 @@ pub fn fetch_ssh_secret(server_id: &str) -> Result<String, String> {
 }
 
 /// Store the SSH secret for a server.
-pub fn set_ssh_secret(
-    app: &tauri::AppHandle,
-    server_id: &str,
-    secret: &str,
-) -> Result<(), String> {
+pub fn set_ssh_secret(app: &tauri::AppHandle, server_id: &str, secret: &str) -> Result<(), String> {
     let _ = app;
     set_keyring_secret(&ssh_secret_account(server_id), secret)
 }
@@ -227,27 +228,32 @@ fn tunnel_auth_account(tunnel_id: &str) -> String {
 
 /// Store (or replace) the basic-auth password for a tunnel.
 pub fn set_tunnel_auth_password(
-    _app: &tauri::AppHandle,
-    _tunnel_id: &str,
-    _password: &str,
+    app: &tauri::AppHandle,
+    tunnel_id: &str,
+    password: &str,
 ) -> Result<(), String> {
-    Err("tunnel auth: not implemented".into())
+    let _ = app;
+    set_keyring_secret(&tunnel_auth_account(tunnel_id), password)
 }
 
 /// Fetch the basic-auth password for a tunnel, `Ok(None)` when not set.
 pub fn get_tunnel_auth_password(
-    _app: &tauri::AppHandle,
-    _tunnel_id: &str,
+    app: &tauri::AppHandle,
+    tunnel_id: &str,
 ) -> Result<Option<String>, String> {
-    Err("tunnel auth: not implemented".into())
+    let _ = app;
+    let entry = open_entry(&tunnel_auth_account(tunnel_id))?;
+    match entry.get_password() {
+        Ok(password) => Ok(Some(password)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(e) => Err(format!("读取钥匙串失败：{e}")),
+    }
 }
 
 /// Delete the basic-auth password when a tunnel's auth is removed.
-pub fn delete_tunnel_auth_password(
-    _app: &tauri::AppHandle,
-    _tunnel_id: &str,
-) -> Result<(), String> {
-    Err("tunnel auth: not implemented".into())
+pub fn delete_tunnel_auth_password(app: &tauri::AppHandle, tunnel_id: &str) -> Result<(), String> {
+    let _ = app;
+    delete_keyring_secret(&tunnel_auth_account(tunnel_id))
 }
 
 #[cfg(test)]
@@ -300,7 +306,10 @@ mod tests {
         assert!(value.get("password").is_none());
         assert!(value.get("secret").is_none());
         assert!(value.get("token").is_none());
-        assert_eq!(value.get("authKind").and_then(|v| v.as_str()), Some("password"));
+        assert_eq!(
+            value.get("authKind").and_then(|v| v.as_str()),
+            Some("password")
+        );
         let back: ServerConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(back.id, "x1");
         assert_eq!(back.frps_bind_port, 7000);
@@ -314,9 +323,8 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         let p = dir.join("servers.json");
         write_raw(&p, "{ not valid json !!!");
-        let parsed: Result<Vec<ServerConfig>, _> = serde_json::from_str(
-            &fs::read_to_string(&p).unwrap(),
-        );
+        let parsed: Result<Vec<ServerConfig>, _> =
+            serde_json::from_str(&fs::read_to_string(&p).unwrap());
         assert!(parsed.is_err());
         let _ = fs::remove_dir_all(&dir);
     }

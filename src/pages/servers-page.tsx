@@ -1,5 +1,6 @@
 // Servers page: manage self-hosted frps servers (add / deploy / test /
-// uninstall / delete) and track live deployment progress.
+// uninstall / delete). Live deployment sessions live in the module-level
+// deploy store, so leaving and re-entering this page keeps the progress view.
 
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -16,10 +17,7 @@ import {
 import { toast } from "sonner";
 
 import { AddServerDialog } from "@/components/server/add-server-dialog";
-import {
-  DeployProgressDialog,
-  type DeploySession,
-} from "@/components/server/deploy-progress-dialog";
+import { DeployProgressDialog } from "@/components/server/deploy-progress-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -45,9 +43,16 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { api, onDeployDone, onDeployProgress } from "@/lib/tauri";
-import type { UnlistenFn } from "@tauri-apps/api/event";
+import { api } from "@/lib/tauri";
 import { cn, errorMessage } from "@/lib/utils";
+import {
+  ensureDeployStoreInitialized,
+  finishDeploy,
+  setDeployDialogOpen,
+  showDeploySession,
+  startDeploy,
+  useDeployStore,
+} from "@/store/deploy-store";
 import type { ServerConfig, ServerStatus } from "@/types/tunnel";
 
 export function ServersPage() {
@@ -58,11 +63,12 @@ export function ServersPage() {
   const [loaded, setLoaded] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
 
-  // Deployment session lives here so the progress dialog can be minimized
-  // ("run in background") without losing track of the run.
-  const [session, setSession] = useState<DeploySession | null>(null);
-  const [sessionOpen, setSessionOpen] = useState(false);
-  const [deployingIds, setDeployingIds] = useState<Set<string>>(() => new Set());
+  // Deployment sessions are module-level: re-entering the page restores the
+  // in-progress view (dialog state included) instead of losing it.
+  const deploy = useDeployStore();
+  const activeSession = deploy.activeServerId
+    ? (deploy.sessions[deploy.activeServerId] ?? null)
+    : null;
 
   const reload = useCallback(async () => {
     try {
@@ -87,103 +93,33 @@ export function ServersPage() {
   }, [t]);
 
   useEffect(() => {
+    // Resident global event subscriptions live in the deploy store.
+    void ensureDeployStoreInitialized();
     void reload();
   }, [reload]);
 
-  // Live deployment events: keep updating the session even when the dialog is
-  // minimized. Subscriptions last for the whole page session.
-  useEffect(() => {
-    let unprogress: UnlistenFn | undefined;
-    let undone: UnlistenFn | undefined;
-    void (async () => {
-      unprogress = await onDeployProgress((progress) => {
-        setSession(
-          (prev) =>
-            prev && prev.server.id === progress.serverId
-              ? {
-                  ...prev,
-                  steps: {
-                    ...prev.steps,
-                    [progress.step]: { status: progress.status, message: progress.message },
-                  },
-                }
-              : prev,
-        );
-      });
-      undone = await onDeployDone((result) => {
-        setSession(
-          (prev) =>
-            prev && prev.server.id === result.serverId
-              ? { ...prev, done: result, phase: result.ok ? "success" : "failed" }
-              : prev,
-        );
-      });
-    })();
-    return () => {
-      unprogress?.();
-      undone?.();
-    };
-  }, []);
-
-  const startDeploy = useCallback(
+  const startDeployFor = useCallback(
     (server: ServerConfig) => {
-      setDeployingIds((prev) => new Set(prev).add(server.id));
-      setSession({ server, steps: {}, done: null, phase: "running" });
-      setSessionOpen(true);
-      void (async () => {
-        try {
-          const result = await api.deployServer(server.id);
-          setSession(
-            (prev) =>
-              prev && prev.server.id === result.serverId
-                ? { ...prev, done: result, phase: result.ok ? "success" : "failed" }
-                : prev,
-          );
-        } catch (error) {
-          setSession(
-            (prev) =>
-              prev && prev.server.id === server.id
-                ? {
-                    ...prev,
-                    phase: "failed",
-                    done: {
-                      serverId: server.id,
-                      ok: false,
-                      error: errorMessage(error),
-                      token: null,
-                    },
-                  }
-                : prev,
-          );
-        } finally {
-          setDeployingIds((prev) => {
-            const next = new Set(prev);
-            next.delete(server.id);
-            return next;
-          });
-          void reload();
-        }
-      })();
+      void startDeploy(server).then(() => void reload());
     },
     [reload],
   );
-
-  const finishSession = useCallback(() => {
-    setSessionOpen(false);
-    setSession(null);
-    void reload();
-  }, [reload]);
 
   // Close is blocked while a deployment is running (the dialog enforces this
   // too); here we only ever receive `false` for allowed closes.
   const handleSessionOpenChange = useCallback(
     (open: boolean) => {
-      if (!open && session?.phase === "running") return;
-      setSessionOpen(open);
-      if (!open) setSession(null);
+      if (!open && activeSession?.phase === "running") return;
+      setDeployDialogOpen(open);
     },
-    [session],
+    [activeSession],
   );
+
+  const finishSession = useCallback(() => {
+    if (!activeSession) return;
+    finishDeploy(activeSession.server.id);
+    void reload();
+  }, [activeSession, reload]);
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col px-8 py-10">
@@ -210,10 +146,10 @@ export function ServersPage() {
               key={server.id}
               server={server}
               status={statuses[server.id]}
-              deploying={deployingIds.has(server.id)}
-              hasSession={session?.server.id === server.id}
-              onDeploy={() => startDeploy(server)}
-              onViewProgress={() => setSessionOpen(true)}
+              deploying={deploy.deployingIds.has(server.id)}
+              hasSession={Boolean(deploy.sessions[server.id])}
+              onDeploy={() => startDeployFor(server)}
+              onViewProgress={() => showDeploySession(server.id)}
               onTested={(status) =>
                 setStatuses((prev) => ({ ...prev, [server.id]: status }))
               }
@@ -234,13 +170,13 @@ export function ServersPage() {
 
       <AddServerDialog open={addOpen} onOpenChange={setAddOpen} onAdded={() => void reload()} />
 
-      {session ? (
+      {activeSession ? (
         <DeployProgressDialog
-          session={session}
-          open={sessionOpen}
+          session={activeSession}
+          open={deploy.open}
           onOpenChange={handleSessionOpenChange}
-          onBackground={() => setSessionOpen(false)}
-          onRetry={() => startDeploy(session.server)}
+          onBackground={() => setDeployDialogOpen(false)}
+          onRetry={() => startDeployFor(activeSession.server)}
           onFinish={finishSession}
         />
       ) : null}

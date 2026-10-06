@@ -1,8 +1,17 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ArrowLeft, Globe, Network, Waypoints } from "lucide-react";
+import {
+  ArrowLeft,
+  ChevronDown,
+  Copy,
+  Dices,
+  Globe,
+  Network,
+  Waypoints,
+} from "lucide-react";
 import { toast } from "sonner";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -20,10 +29,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { cn, errorMessage, randomId } from "@/lib/utils";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
+import { cn, copyText, errorMessage, randomId, randomPassword } from "@/lib/utils";
 import { api } from "@/lib/tauri";
 import { mergeState, upsertConfig } from "@/store/tunnel-store";
-import type { ServerConfig, TunnelConfig, TunnelType } from "@/types/tunnel";
+import type {
+  ServerConfig,
+  TunnelAuth,
+  TunnelConfig,
+  TunnelType,
+} from "@/types/tunnel";
 
 interface AddTunnelDialogProps {
   open: boolean;
@@ -67,6 +83,24 @@ function parsePort(value: string): number | null {
   return port >= 1 && port <= 65535 ? port : null;
 }
 
+/**
+ * Parse the IP allowlist textarea: one IP or CIDR per line, trimmed, empty
+ * lines dropped, duplicates removed (case-insensitive, first spelling wins).
+ */
+export function parseAllowlist(text: string): string[] {
+  const seen = new Set<string>();
+  const rules: string[] = [];
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const key = line.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    rules.push(line);
+  }
+  return rules;
+}
+
 export function AddTunnelDialog({
   open,
   onOpenChange,
@@ -74,6 +108,9 @@ export function AddTunnelDialog({
 }: AddTunnelDialogProps) {
   const { t } = useTranslation();
   const isEdit = Boolean(editTunnel);
+  // Only tunnels with pre-existing auth may keep their keychain password by
+  // leaving the password field empty.
+  const hasExistingAuth = isEdit && Boolean(editTunnel?.auth);
 
   const [step, setStep] = useState(1);
   const [tunnelType, setTunnelType] = useState<TunnelType>("http");
@@ -92,6 +129,14 @@ export function AddTunnelDialog({
   const [remotePort, setRemotePort] = useState("");
   const [remotePortError, setRemotePortError] = useState(false);
 
+  // M3: advanced options — Basic Auth + IP allowlist.
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [authEnabled, setAuthEnabled] = useState(false);
+  const [authUsername, setAuthUsername] = useState("admin");
+  const [authPassword, setAuthPassword] = useState("");
+  const [passwordError, setPasswordError] = useState(false);
+  const [allowlistText, setAllowlistText] = useState("");
+
   // Reset (create) or prefill (edit) whenever the dialog opens.
   useEffect(() => {
     if (!open) return;
@@ -103,18 +148,29 @@ export function AddTunnelDialog({
     setSubdomain("");
     setRemotePort("");
     setRemotePortError(false);
+    setAdvancedOpen(false);
+    setPasswordError(false);
     if (editTunnel) {
       setStep(TOTAL_STEPS);
       setTunnelType(editTunnel.tunnelType);
       setName(editTunnel.name);
       setLocalHost(editTunnel.localHost);
       setLocalPort(String(editTunnel.localPort));
+      setAuthEnabled(Boolean(editTunnel.auth));
+      setAuthUsername(editTunnel.auth?.username || "admin");
+      // Never prefill the stored password; empty means "keep it".
+      setAuthPassword("");
+      setAllowlistText((editTunnel.ipAllowlist ?? []).join("\n"));
     } else {
       setStep(1);
       setTunnelType("http");
       setName("");
       setLocalHost("127.0.0.1");
       setLocalPort("");
+      setAuthEnabled(false);
+      setAuthUsername("admin");
+      setAuthPassword("");
+      setAllowlistText("");
       // Load deployed servers to offer the self-hosted channel.
       api
         .listServers()
@@ -135,6 +191,10 @@ export function AddTunnelDialog({
   const useFrp = !isEdit && channel === "selfhosted" && servers.length > 0;
   const parsedRemotePort = parsePort(remotePort);
 
+  const authAvailable = tunnelType === "http";
+  const authActive = authEnabled && authAvailable;
+  const parsedAllowlist = parseAllowlist(allowlistText);
+
   function pickType(type: TunnelType) {
     setTunnelType(type);
     setStep(2);
@@ -146,6 +206,21 @@ export function AddTunnelDialog({
     if (next === "selfhosted" && !serverId && servers.length === 1) {
       setServerId(servers[0].id);
     }
+  }
+
+  function toggleAuthEnabled(on: boolean) {
+    setAuthEnabled(on);
+    setPasswordError(false);
+    // Prefill a random password so enabling auth is always submission-ready;
+    // the user can overwrite or clear it (clear = keep existing on edit).
+    if (on && !authPassword) setAuthPassword(randomPassword());
+  }
+
+  async function copyPassword() {
+    if (!authPassword) return;
+    const ok = await copyText(authPassword);
+    if (ok) toast.success(t("common.copied"));
+    else toast.error(t("common.copyFailed"));
   }
 
   async function handleSubmit() {
@@ -167,6 +242,14 @@ export function AddTunnelDialog({
       setRemotePortError(true);
       return;
     }
+    // Without a stored password there is nothing to keep — require one.
+    if (authActive && !authPassword && !hasExistingAuth) {
+      setPasswordError(true);
+      return;
+    }
+    const nextAuth: TunnelAuth | null = authActive
+      ? { kind: "basic", username: authUsername.trim() || "admin" }
+      : null;
     setSubmitting(true);
     try {
       if (isEdit && editTunnel) {
@@ -175,9 +258,33 @@ export function AddTunnelDialog({
           name: name.trim() || `port-${parsedPort}`,
           localHost: localHost.trim(),
           localPort: parsedPort,
+          auth: nextAuth,
+          ipAllowlist: parsedAllowlist,
         };
         const saved = await api.updateTunnel(updated);
         upsertConfig(saved);
+        // Password lives in the OS keychain, managed separately from config.
+        if (nextAuth) {
+          // Empty field = keep the stored password untouched.
+          if (authPassword) {
+            try {
+              await api.setTunnelAuth(saved.id, authPassword);
+            } catch (authError) {
+              toast.error(t("add.auth.saveFailed"), {
+                description: errorMessage(authError),
+              });
+            }
+          }
+        } else if (editTunnel.auth) {
+          // Auth was turned off: clear the keychain entry too.
+          try {
+            await api.setTunnelAuth(saved.id, null);
+          } catch (authError) {
+            toast.error(t("add.auth.saveFailed"), {
+              description: errorMessage(authError),
+            });
+          }
+        }
         toast.success(t("add.updateSuccess"));
         onOpenChange(false);
       } else {
@@ -201,12 +308,23 @@ export function AddTunnelDialog({
                 remotePort: tunnelType === "tcp" ? parsedRemotePort : null,
               }
             : {}),
+          ...(authActive ? { auth: nextAuth } : {}),
+          ipAllowlist: parsedAllowlist,
         };
-        await api.createTunnel(created);
-        upsertConfig(created);
-        const state = await api.startTunnel(created.id);
+        const saved = await api.createTunnel(created);
+        upsertConfig(saved);
+        if (nextAuth) {
+          try {
+            await api.setTunnelAuth(saved.id, authPassword);
+          } catch (authError) {
+            toast.error(t("add.auth.saveFailed"), {
+              description: errorMessage(authError),
+            });
+          }
+        }
+        const state = await api.startTunnel(saved.id);
         mergeState(state);
-        toast.success(t("add.createSuccess", { name: created.name }));
+        toast.success(t("add.createSuccess", { name: saved.name }));
         onOpenChange(false);
       }
     } catch (error) {
@@ -233,6 +351,7 @@ export function AddTunnelDialog({
         : t("add.backendMappingTcp");
 
   const showChannelPicker = !isEdit && servers.length > 0;
+  const advancedActive = authActive || parsedAllowlist.length > 0;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -427,6 +546,156 @@ export function AddTunnelDialog({
               <p className="text-[13px] leading-relaxed text-muted-foreground">
                 {backendNote}
               </p>
+            </div>
+
+            {/* Advanced: access auth + IP allowlist */}
+            <div className="rounded-lg border">
+              <button
+                type="button"
+                onClick={() => setAdvancedOpen((prev) => !prev)}
+                aria-expanded={advancedOpen}
+                className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-[13px] font-medium transition-colors hover:bg-accent/40"
+              >
+                <ChevronDown
+                  className={cn(
+                    "size-4 shrink-0 text-muted-foreground transition-transform",
+                    advancedOpen && "rotate-180",
+                  )}
+                />
+                {t("add.advanced")}
+                {advancedActive ? (
+                  <Badge variant="secondary" className="ml-auto text-[11px]">
+                    {t("add.advancedActive")}
+                  </Badge>
+                ) : null}
+              </button>
+
+              {advancedOpen ? (
+                <div className="flex flex-col gap-4 border-t px-3 py-3.5">
+                  {/* Basic Auth */}
+                  <div className="flex flex-col gap-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex flex-col gap-0.5">
+                        <Label htmlFor="tunnel-auth-switch">
+                          {t("add.auth.title")}
+                        </Label>
+                        <p className="text-xs leading-relaxed text-muted-foreground">
+                          {authAvailable
+                            ? t("add.auth.description")
+                            : t("add.auth.tcpDisabled")}
+                        </p>
+                      </div>
+                      <Switch
+                        id="tunnel-auth-switch"
+                        checked={authActive}
+                        disabled={!authAvailable}
+                        onCheckedChange={toggleAuthEnabled}
+                      />
+                    </div>
+
+                    {authActive ? (
+                      <div className="flex flex-col gap-2.5">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="flex flex-col gap-2">
+                            <Label htmlFor="tunnel-auth-username">
+                              {t("add.auth.username")}
+                            </Label>
+                            <Input
+                              id="tunnel-auth-username"
+                              value={authUsername}
+                              onChange={(e) => setAuthUsername(e.target.value)}
+                              placeholder="admin"
+                              className="font-mono"
+                              autoComplete="off"
+                              spellCheck={false}
+                            />
+                          </div>
+                          <div className="flex flex-col gap-2">
+                            <Label htmlFor="tunnel-auth-password">
+                              {t("add.auth.password")}
+                            </Label>
+                            <div className="flex items-center gap-1">
+                              <Input
+                                id="tunnel-auth-password"
+                                type="password"
+                                value={authPassword}
+                                onChange={(e) => {
+                                  setAuthPassword(e.target.value);
+                                  setPasswordError(false);
+                                }}
+                                className={cn(
+                                  "font-mono",
+                                  passwordError && "border-destructive",
+                                )}
+                                aria-invalid={passwordError}
+                                autoComplete="new-password"
+                                spellCheck={false}
+                              />
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon-sm"
+                                className="shrink-0 text-muted-foreground hover:text-foreground"
+                                onClick={() => {
+                                  setAuthPassword(randomPassword());
+                                  setPasswordError(false);
+                                }}
+                                aria-label={t("add.auth.generate")}
+                                title={t("add.auth.generate")}
+                              >
+                                <Dices className="size-4" />
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon-sm"
+                                className="shrink-0 text-muted-foreground hover:text-foreground"
+                                disabled={!authPassword}
+                                onClick={() => void copyPassword()}
+                                aria-label={t("add.auth.copyPassword")}
+                                title={t("add.auth.copyPassword")}
+                              >
+                                <Copy className="size-4" />
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                        {passwordError ? (
+                          <p className="text-xs text-destructive">
+                            {t("add.auth.passwordRequired")}
+                          </p>
+                        ) : null}
+                        <p className="text-xs leading-relaxed text-muted-foreground">
+                          {hasExistingAuth
+                            ? t("add.auth.passwordKeep")
+                            : t("add.auth.storedHint")}
+                        </p>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  {/* IP allowlist */}
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="tunnel-allowlist">
+                      {t("add.allowlist.title")}
+                    </Label>
+                    <Textarea
+                      id="tunnel-allowlist"
+                      value={allowlistText}
+                      onChange={(e) => setAllowlistText(e.target.value)}
+                      placeholder={t("add.allowlist.placeholder")}
+                      rows={3}
+                      className="resize-y font-mono text-[13px]"
+                      spellCheck={false}
+                    />
+                    <p className="text-xs leading-relaxed text-muted-foreground">
+                      {parsedAllowlist.length > 0
+                        ? t("add.allowlist.count", { n: parsedAllowlist.length })
+                        : t("add.allowlist.description")}
+                    </p>
+                  </div>
+                </div>
+              ) : null}
             </div>
           </div>
         )}

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  Activity,
   ArrowDown,
   ArrowRight,
   ArrowUp,
@@ -8,8 +9,10 @@ import {
   Copy,
   Ellipsis,
   LoaderCircle,
+  Lock,
   Pencil,
   ScrollText,
+  Shield,
   Stethoscope,
   Trash2,
 } from "lucide-react";
@@ -17,6 +20,7 @@ import { toast } from "sonner";
 
 import { DiagnosisCard } from "@/components/tunnel/diagnosis-card";
 import { QrPopover } from "@/components/tunnel/qr-popover";
+import { StatsSparkline } from "@/components/tunnel/stats-sparkline";
 import { StatusDot } from "@/components/status-dot";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -38,10 +42,15 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Switch } from "@/components/ui/switch";
 import { api } from "@/lib/tauri";
 import { cn, copyText, errorMessage, formatBytes, formatDateTime } from "@/lib/utils";
-import { mergeState } from "@/store/tunnel-store";
+import { mergeState, useTunnelStats } from "@/store/tunnel-store";
 import i18n from "@/i18n";
 import type { Diagnosis, TunnelConfig, TunnelState } from "@/types/tunnel";
 
@@ -67,7 +76,14 @@ export function TunnelCard({ tunnel, state, onEdit, onShowLogs, onDelete }: Tunn
   const publicUrl = state?.publicUrl;
   const isActive = ACTIVE_STATUSES.has(status);
   const switching = busy || status === "starting" || status === "reconnecting";
-  const totalBytes = (state?.bytesIn ?? 0) + (state?.bytesOut ?? 0);
+
+  // Live traffic: the per-second stats event wins over the coarse state
+  // snapshot so the numbers update every second while running.
+  const { stats, history } = useTunnelStats(tunnel.id);
+  const bytesIn = stats?.bytesIn ?? state?.bytesIn ?? 0;
+  const bytesOut = stats?.bytesOut ?? state?.bytesOut ?? 0;
+  const totalBytes = bytesIn + bytesOut;
+  const showSparkline = status === "running" && history.length >= 2;
 
   const localTarget = `${tunnel.localHost}:${tunnel.localPort}`;
 
@@ -144,6 +160,36 @@ export function TunnelCard({ tunnel, state, onEdit, onShowLogs, onDelete }: Tunn
                 ? t("card.backendBore")
                 : t("card.backendFrp")}
           </Badge>
+
+          {/* Access control markers */}
+          {tunnel.auth ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="flex shrink-0 items-center">
+                  <Lock className="size-3.5 text-muted-foreground" />
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top">
+                {t("card.authTooltip", { username: tunnel.auth.username })}
+              </TooltipContent>
+            </Tooltip>
+          ) : null}
+          {tunnel.ipAllowlist && tunnel.ipAllowlist.length > 0 ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge
+                  variant="outline"
+                  className="gap-1 text-[11px] text-muted-foreground"
+                >
+                  <Shield className="size-3" />
+                  {tunnel.ipAllowlist.length}
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent side="top">
+                {t("card.allowlistTooltip", { n: tunnel.ipAllowlist.length })}
+              </TooltipContent>
+            </Tooltip>
+          ) : null}
 
           <div className="ml-auto flex items-center gap-2">
             <Switch
@@ -224,14 +270,23 @@ export function TunnelCard({ tunnel, state, onEdit, onShowLogs, onDelete }: Tunn
             {totalBytes > 0 ? (
               <span className="inline-flex items-center gap-1.5 font-mono">
                 <ArrowDown className="size-3 text-emerald-600 dark:text-success" />
-                {formatBytes(state?.bytesIn ?? 0)}
+                {formatBytes(bytesIn)}
                 <ArrowUp className="size-3 text-foreground/60" />
-                {formatBytes(state?.bytesOut ?? 0)}
+                {formatBytes(bytesOut)}
               </span>
             ) : (
               <span className="font-mono">{t("common.dash")}</span>
             )}
           </span>
+          {stats && stats.connActive > 0 ? (
+            <span className="inline-flex items-center gap-1.5">
+              <Activity className="size-3 text-foreground/60" />
+              <span className="font-mono text-foreground/80">
+                {stats.connActive}
+              </span>
+              <span>{t("card.connActive")}</span>
+            </span>
+          ) : null}
           <span className="inline-flex items-center gap-1.5">
             <span className="text-foreground/60">{t("card.uptime")}</span>
             {state?.startedAt ? (
@@ -242,6 +297,9 @@ export function TunnelCard({ tunnel, state, onEdit, onShowLogs, onDelete }: Tunn
               <span>{t("card.notStarted")}</span>
             )}
           </span>
+          {showSparkline ? (
+            <StatsSparkline history={history} className="ml-auto" />
+          ) : null}
         </div>
 
         {/* Error summary */}

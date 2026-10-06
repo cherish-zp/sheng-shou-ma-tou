@@ -71,3 +71,22 @@ export function randomId(): string {
   }
   return `id-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
+
+/** Unambiguous password alphabet: no 0/O/o, 1/l/I look-alikes. */
+const PASSWORD_ALPHABET = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789";
+
+/** Generate a random password for HTTP Basic Auth (crypto-backed). */
+export function randomPassword(length = 16): string {
+  const pick = (index: number): string =>
+    PASSWORD_ALPHABET[Math.abs(index) % PASSWORD_ALPHABET.length];
+  if (typeof crypto !== "undefined" && "getRandomValues" in crypto) {
+    const bytes = new Uint32Array(length);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes, pick).join("");
+  }
+  let out = "";
+  for (let i = 0; i < length; i += 1) {
+    out += pick(Math.floor(Math.random() * PASSWORD_ALPHABET.length));
+  }
+  return out;
+}

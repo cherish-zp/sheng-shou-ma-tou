@@ -3562,6 +3562,7 @@ dependencies = [
 name = "pier"
 version = "0.1.0"
 dependencies = [
+ "base64 0.23.1",
  "chrono",
  "dirs 7.0.0",
  "flate2",

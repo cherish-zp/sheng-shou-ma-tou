@@ -126,6 +126,8 @@ mod tests {
             server_id: None,
             subdomain: None,
             remote_port: None,
+            auth: None,
+            ip_allowlist: Vec::new(),
         }
     }
 

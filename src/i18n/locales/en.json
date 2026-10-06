@@ -57,7 +57,10 @@
     "deleteSuccess": "Deleted “{{name}}”",
     "startFailed": "Failed to start",
     "stopFailed": "Failed to stop",
-    "deleteFailed": "Failed to delete"
+    "deleteFailed": "Failed to delete",
+    "authTooltip": "Basic auth · {{username}}",
+    "allowlistTooltip": "IP allowlist · {{n}} rules",
+    "connActive": "active connections"
   },
   "add": {
     "createTitle": "New Tunnel",
@@ -99,7 +102,28 @@
     "updateFailed": "Failed to save changes",
     "updateSuccess": "Changes saved",
     "portRequired": "Enter a port between 1 and 65535",
-    "hostRequired": "Enter a local host"
+    "hostRequired": "Enter a local host",
+    "advanced": "Advanced",
+    "advancedActive": "Active",
+    "auth": {
+      "title": "Access authentication",
+      "description": "Require a username and password to open this tunnel (HTTP Basic Auth)",
+      "tcpDisabled": "Basic Auth is not available for non-HTTP services",
+      "username": "Username",
+      "password": "Password",
+      "generate": "Generate a random password",
+      "copyPassword": "Copy password",
+      "passwordRequired": "Enter a password, or generate one with the button",
+      "passwordKeep": "Leave empty to keep the current password unchanged",
+      "storedHint": "The password is stored in the OS keychain and never written to config files",
+      "saveFailed": "Failed to save the password"
+    },
+    "allowlist": {
+      "title": "IP allowlist",
+      "description": "Only these IPs can access the tunnel; empty means no restriction",
+      "placeholder": "One IP or CIDR per line, e.g.\n203.0.113.7\n10.0.0.0/8",
+      "count": "{{n}} rules will be applied"
+    }
   },
   "logs": {
     "title": "Logs",
@@ -373,6 +397,9 @@
     "installSuccess": "Engine installed",
     "versionUnknown": "unknown version",
     "loadFailed": "Failed to load engine status"
+  },
+  "stats": {
+    "sparklineTitle": "Traffic, last 60 seconds (green = in, gray = out)"
   },
   "errors": {
     "loadFailed": "Failed to load tunnels",

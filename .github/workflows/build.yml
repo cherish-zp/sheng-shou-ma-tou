@@ -1,0 +1,168 @@
+# Pier 构建与发布流水线（Tauri 2 + tauri-action）
+#
+# 触发：
+#   - push tag `v*`  -> 构建三平台产物并创建 GitHub Release（草稿，人工复核后发布）
+#   - workflow_dispatch -> 仅构建并上传 workflow artifacts（手动验证用）
+#
+# 签名/公证：目前为占位。在仓库 Settings -> Secrets 配置好 APPLE_CERTIFICATE 等
+# secret 后，下方 tauri-action 的 env 会自动生效，无需改动本文件。
+# 完整流程见 docs/RELEASE.md。
+
+name: build
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  # ---------- 质量门禁：类型检查 + 前端构建 + Rust 测试 ----------
+  check:
+    name: Check (ubuntu)
+    runs-on: ubuntu-22.04 # 若 runner 退役可改 ubuntu-24.04，系统依赖相同
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Tauri v2 Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Type-check & build frontend
+        run: npm run build
+
+      - name: Run Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --all-features --workspace
+
+  # ---------- 三平台构建 ----------
+  build:
+    name: Build ${{ matrix.slug }}
+    needs: check
+    runs-on: ${{ matrix.platform }}
+    permissions:
+      contents: write # tauri-action 创建 Release 需要写权限
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS arm64（Apple Silicon）。如需 universal2 合并包，
+          # 可将两个 macos job 换成单个 --target universal-apple-darwin（见 docs/RELEASE.md）
+          - platform: macos-latest
+            args: --target aarch64-apple-darwin
+            slug: macos-arm64
+          # macOS Intel
+          - platform: macos-latest
+            args: --target x86_64-apple-darwin
+            slug: macos-intel
+          - platform: windows-latest
+            args: ''
+            slug: windows-x64
+          - platform: ubuntu-22.04 # 若 runner 退役可改 ubuntu-24.04
+            args: ''
+            slug: linux-x64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Tauri v2 Linux system dependencies
+        if: ${{ matrix.platform == 'ubuntu-22.04' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build & release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # ---- macOS 签名 + 公证（待配置 Apple Developer 账号后启用）----
+          # 在 GitHub Secrets 中配置以下项后自动生效；未配置时为空，bundler 自动跳过签名
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}                 # base64 的 .p12 开发者证书
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}       # e.g. "Developer ID Application: ... (TEAMID)"
+          APPLE_ID: ${{ secrets.APPLE_ID }}                                   # 公证用 Apple ID
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}                       # App 专用密码
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # ---- Windows 代码签名（待购买 EV/OV 证书后启用，见 docs/RELEASE.md）----
+          # TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}           # 更新器私钥（启用 updater 后）
+          # TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: .
+          # tag 触发时创建 Release 草稿；手动触发时留空 -> 仅上传 artifacts
+          tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+          releaseName: ${{ startsWith(github.ref, 'refs/tags/v') && 'Pier v__VERSION__' || '' }}
+          releaseBody: '从下方 Assets 下载对应平台的安装包。更新内容见 [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md)。'
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
+
+      # workflow_dispatch（无 tag）时的产物兜底上传，产物名带平台便于下载
+      - name: Upload bundles (workflow_dispatch)
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: pier-${{ matrix.slug }}
+          if-no-files-found: warn
+          path: |
+            src-tauri/target/*/release/bundle/dmg/*.dmg
+            src-tauri/target/*/release/bundle/macos/*.app.tar.gz
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/rpm/*.rpm
+            src-tauri/target/release/bundle/appimage/*.AppImage

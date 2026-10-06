@@ -4,7 +4,22 @@
 
 **Pier** 把你电脑上的本地端口一键映射到公网——无需注册账号、无需命令行，装上就能用。
 
-![platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-blue) ![license](https://img.shields.io/badge/license-MIT-green)
+<!-- 发布时把 OWNER/REPO 替换为实际仓库地址（下同） -->
+[![Build](https://github.com/OWNER/REPO/actions/workflows/build.yml/badge.svg)](https://github.com/OWNER/REPO/actions/workflows/build.yml) ![platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-blue) ![license](https://img.shields.io/badge/license-MIT-green)
+
+## 下载
+
+前往 [GitHub Releases](https://github.com/OWNER/REPO/releases) 获取最新版本：
+
+| 平台 | 产物 |
+|---|---|
+| macOS (Apple Silicon) | `Pier_aarch64.dmg` |
+| macOS (Intel) | `Pier_x64.dmg` |
+| Windows | `Pier_x64-setup.exe`（NSIS）或 `Pier_x64_en-US.msi` |
+| Linux | `.deb` / `.AppImage` |
+
+> 当前版本未做代码签名：macOS 首次打开请右键 → 打开；Windows 若遇 SmartScreen 提示请点"仍要运行"。
+> 签名 / 公证流程已就绪，见 [docs/RELEASE.md](docs/RELEASE.md)，待配置开发者账号后启用。
 
 ## 特性
 
@@ -41,8 +56,9 @@ npm run tauri build  # 打包
 ## 路线图
 
 - [x] M1：免服务器双引擎（cloudflared + bore）、隧道管理、托盘、双主题、i18n
-- [ ] M2：VPS 一键部署 frp 服务端（SSH）、frpc 配置导入、一键诊断、自定义域名
-- [ ] M3：访问鉴权（密码 / IP 白名单）、流量统计图表、签名公证
+- [x] M2：VPS 一键部署 frp 服务端（SSH）、frpc 配置导入、一键诊断、自定义域名
+- [x] M3：访问鉴权（密码 / IP 白名单）、流量统计图表、品牌应用图标与三平台 CI
+- [ ] 签名公证 — 流程就绪（[docs/RELEASE.md](docs/RELEASE.md)），待开发者账号
 - [ ] 之后：P2P 直连（iroh）、智能 dev server 发现、CLI（`pier 5000`）、Linux 版
 
 ## License

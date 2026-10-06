@@ -23,20 +23,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { copyText, cn } from "@/lib/utils";
-import type { DeployResult, ServerConfig, StepStatus } from "@/types/tunnel";
-
-export interface DeployStepState {
-  status: StepStatus;
-  message: string | null;
-}
-
-/** A deployment run currently tracked by the servers page. */
-export interface DeploySession {
-  server: ServerConfig;
-  steps: Record<string, DeployStepState>;
-  done: DeployResult | null;
-  phase: "running" | "success" | "failed";
-}
+import type { DeploySession } from "@/store/deploy-store";
+import type { StepStatus } from "@/types/tunnel";
 
 /** Canonical steps in backend order (frp_deploy.rs); unknown slugs appended. */
 export const DEPLOY_STEPS = [

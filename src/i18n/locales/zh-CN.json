@@ -57,7 +57,10 @@
     "deleteSuccess": "已删除「{{name}}」",
     "startFailed": "启动失败",
     "stopFailed": "停止失败",
-    "deleteFailed": "删除失败"
+    "deleteFailed": "删除失败",
+    "authTooltip": "访问鉴权 · {{username}}",
+    "allowlistTooltip": "IP 白名单 · {{n}} 条规则",
+    "connActive": "活跃连接"
   },
   "add": {
     "createTitle": "新建隧道",
@@ -99,7 +102,28 @@
     "updateFailed": "保存修改失败",
     "updateSuccess": "修改已保存",
     "portRequired": "请输入 1 - 65535 之间的端口号",
-    "hostRequired": "请输入本地地址"
+    "hostRequired": "请输入本地地址",
+    "advanced": "高级",
+    "advancedActive": "已启用",
+    "auth": {
+      "title": "访问鉴权",
+      "description": "开启后访问该隧道需要输入用户名和密码（HTTP Basic Auth）",
+      "tcpDisabled": "非 HTTP 服务无法使用 Basic Auth",
+      "username": "用户名",
+      "password": "密码",
+      "generate": "生成随机密码",
+      "copyPassword": "复制密码",
+      "passwordRequired": "请输入密码，或点击按钮生成随机密码",
+      "passwordKeep": "留空表示保持原密码不变",
+      "storedHint": "密码将保存在系统钥匙串中，不会写入配置文件",
+      "saveFailed": "密码保存失败"
+    },
+    "allowlist": {
+      "title": "IP 白名单",
+      "description": "仅允许指定 IP 访问；留空表示不限制",
+      "placeholder": "一行一个 IP 或 CIDR，例如：\n203.0.113.7\n10.0.0.0/8",
+      "count": "将应用 {{n}} 条规则"
+    }
   },
   "logs": {
     "title": "运行日志",
@@ -373,6 +397,9 @@
     "installSuccess": "引擎安装完成",
     "versionUnknown": "未知版本",
     "loadFailed": "加载引擎状态失败"
+  },
+  "stats": {
+    "sparklineTitle": "最近 60 秒流量（绿=下行，灰=上行）"
   },
   "errors": {
     "loadFailed": "加载隧道列表失败",

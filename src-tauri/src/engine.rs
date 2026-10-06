@@ -18,9 +18,15 @@
 //   dropped child (e.g. tokio runtime teardown at app exit) is killed instead
 //   of leaking. `Engine::stop_all()` is provided for the integrator to wire
 //   into a `RunEvent::Exit` hook later (lib.rs is outside this milestone).
-// * Traffic counters (bytes_in/bytes_out) stay 0 — neither cloudflared nor
-//   bore reports per-tunnel traffic on stdout/stderr; the fields are kept for
-//   the UI contract (frontend renders "-").
+// * Local forwarder (M3): the engine binary NEVER dials the user's service
+//   directly. Before every attempt the engine makes sure the tunnel's local
+//   forwarder is listening (127.0.0.1, random port) and rewrites the command /
+//   frpc config to dial `127.0.0.1:{forwarder_port}` instead — that is where
+//   traffic stats, basic auth and the IP allowlist are enforced. The same
+//   forwarder is reused across attempts and restarts while its target matches;
+//   its byte counters surface in `TunnelState.bytes_in/bytes_out` (snapshot
+//   overlay) and in the throttled `tunnel://stats` event emitted by the
+//   forwarder itself.
 
 use std::collections::{HashMap, VecDeque};
 use std::process::Stdio;
@@ -34,8 +40,10 @@ use tokio::io::AsyncBufReadExt;
 use tokio::sync::{oneshot, Notify};
 
 use crate::binman;
+use crate::forwarder::Forwarder;
 use crate::models::{Backend, TunnelConfig, TunnelState, TunnelStatus};
 use crate::providers;
+use crate::servers_store;
 
 /// Emitted on every status transition. Payload: `{ "state": TunnelState }`.
 pub const TUNNEL_STATE_EVENT: &str = "tunnel://state";
@@ -62,11 +70,11 @@ struct TunnelStateEvent {
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct TunnelLogEvent {
-    tunnel_id: String,
-    level: &'static str,
-    line: String,
-    ts: String,
+pub(crate) struct TunnelLogEvent {
+    pub(crate) tunnel_id: String,
+    pub(crate) level: &'static str,
+    pub(crate) line: String,
+    pub(crate) ts: String,
 }
 
 pub struct Engine {
@@ -91,6 +99,11 @@ struct TunnelHandle {
     /// Ring buffer of the most recent output lines (ANSI stripped, oldest
     /// first), consumed by the diagnostics engine via `Engine::recent_logs`.
     logs: Mutex<VecDeque<String>>,
+    /// This tunnel's local forwarder (stats + access control). `Some` from the
+    /// first start attempt on; reused across attempts and restarts while its
+    /// upstream target matches. Kept after stop so the card keeps showing the
+    /// last run's cumulative traffic.
+    forwarder: Mutex<Option<Arc<Forwarder>>>,
 }
 
 impl TunnelHandle {
@@ -103,6 +116,7 @@ impl TunnelHandle {
             notify: Notify::new(),
             pid: AtomicU32::new(0),
             logs: Mutex::new(VecDeque::with_capacity(LOG_RING_CAP)),
+            forwarder: Mutex::new(None),
         }
     }
 
@@ -117,10 +131,19 @@ impl TunnelHandle {
     }
 
     fn snapshot(&self) -> TunnelState {
-        self.state
-            .read()
+        let mut st = self.state.read().unwrap_or_else(|e| e.into_inner()).clone();
+        // The card shows the forwarder's cumulative counters for this run
+        // (zeroed by `Engine::start`, kept after the tunnel stops).
+        if let Some(fwd) = self
+            .forwarder
+            .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .clone()
+            .as_ref()
+        {
+            st.bytes_in = fwd.bytes_in();
+            st.bytes_out = fwd.bytes_out();
+        }
+        st
     }
 
     fn status(&self) -> TunnelStatus {
@@ -220,6 +243,17 @@ impl Engine {
             return Err(e);
         }
         handle.stop_flag.store(false, Ordering::SeqCst);
+        // Fresh run: zero the forwarder's byte counters so the card shows this
+        // run's totals (the forwarder itself may be reused across restarts;
+        // `ensure_forwarder` replaces it when stopped or retargeted).
+        if let Some(f) = handle
+            .forwarder
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+        {
+            f.reset_counters();
+        }
         let st = handle.update(|s| {
             s.status = TunnelStatus::Starting;
             s.public_url = None;
@@ -278,6 +312,11 @@ impl Engine {
             }
             tokio::time::sleep(STOP_POLL_INTERVAL).await;
         }
+        // Tear the forwarder down synchronously with the user's stop request:
+        // releases the listener, drops every proxied connection and emits the
+        // final stats event. (The supervisor's exit path does the same;
+        // `Forwarder::stop` is idempotent, so double-stopping is harmless.)
+        stop_tunnel_forwarder(&handle).await;
         Ok(handle.snapshot())
     }
 
@@ -294,15 +333,38 @@ impl Engine {
             .collect();
         for id in ids {
             let _ = self.stop(&id).await;
+            // App exit must not leave a forwarder (listener + proxy tasks)
+            // behind even if its supervisor already settled — stop it directly.
+            let handle = self
+                .handles
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(&id)
+                .cloned();
+            if let Some(handle) = handle {
+                stop_tunnel_forwarder(&handle).await;
+            }
         }
     }
 
     /// Drop the runtime bookkeeping for a tunnel (after delete).
     pub fn remove_handle(&self, id: &str) {
-        self.handles
+        let handle = self
+            .handles
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .remove(id);
+        if let Some(handle) = handle {
+            if let Some(fwd) = handle
+                .forwarder
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone()
+            {
+                // Sync fn: detach the async teardown (idempotent stop).
+                tauri::async_runtime::spawn(async move { fwd.stop().await });
+            }
+        }
     }
 
     fn get_or_create(&self, id: &str) -> Arc<TunnelHandle> {
@@ -314,10 +376,9 @@ impl Engine {
     }
 
     fn emit_state(&self, st: &TunnelState) {
-        let _ = self.app.emit(
-            TUNNEL_STATE_EVENT,
-            TunnelStateEvent { state: st.clone() },
-        );
+        let _ = self
+            .app
+            .emit(TUNNEL_STATE_EVENT, TunnelStateEvent { state: st.clone() });
     }
 
     fn emit_log(&self, tunnel_id: &str, level: &'static str, line: &str) {
@@ -358,7 +419,10 @@ async fn supervise(engine: Arc<Engine>, handle: Arc<TunnelHandle>, cfg: TunnelCo
         }
 
         // Abnormal disconnect (or the process died before becoming ready).
-        let err = outcome.error.as_ref().map(|e| truncate_line(e, ERROR_LINE_MAX_LEN));
+        let err = outcome
+            .error
+            .as_ref()
+            .map(|e| truncate_line(e, ERROR_LINE_MAX_LEN));
         let st = handle.update(|s| {
             s.status = TunnelStatus::Reconnecting;
             s.public_url = None;
@@ -377,6 +441,10 @@ async fn supervise(engine: Arc<Engine>, handle: Arc<TunnelHandle>, cfg: TunnelCo
             backoff = (backoff * 2).min(MAX_BACKOFF);
         }
     }
+    // Terminal for any reason (user stop, fatal, or stop during backoff):
+    // shut the forwarder down too — it releases the listener, drops all
+    // proxied connections and emits the final stats event.
+    stop_tunnel_forwarder(&handle).await;
     handle.supervising.store(false, Ordering::SeqCst);
 }
 
@@ -394,35 +462,77 @@ async fn wait_backoff(delay: Duration, handle: &TunnelHandle) -> bool {
 
 /// One full run attempt: resolve binary -> spawn -> stream/parse output until
 /// the process exits or the user stops it.
-async fn run_attempt(
-    engine: &Engine,
-    handle: &TunnelHandle,
-    cfg: &TunnelConfig,
-) -> AttemptOutcome {
+async fn run_attempt(engine: &Engine, handle: &TunnelHandle, cfg: &TunnelConfig) -> AttemptOutcome {
     if handle.stop_flag.load(Ordering::SeqCst) {
-        return AttemptOutcome { had_url: false, fatal: None, error: None };
+        return AttemptOutcome {
+            had_url: false,
+            fatal: None,
+            error: None,
+        };
+    }
+    // The tunnel binary dials Pier's local forwarder (traffic stats + access
+    // control) instead of the user's service. Started once per run and reused
+    // across attempts; replaced when stopped or retargeted.
+    let forwarder = match ensure_forwarder(engine, handle, cfg).await {
+        Ok(fwd) => fwd,
+        Err(e) => {
+            return AttemptOutcome {
+                had_url: false,
+                fatal: Some(e),
+                error: None,
+            }
+        }
+    };
+    if handle.stop_flag.load(Ordering::SeqCst) {
+        return AttemptOutcome {
+            had_url: false,
+            fatal: None,
+            error: None,
+        };
     }
     let binary = match binman::resolve(&engine.app, cfg.backend) {
         Ok(path) => path,
-        Err(e) => return AttemptOutcome { had_url: false, fatal: Some(e), error: None },
+        Err(e) => {
+            return AttemptOutcome {
+                had_url: false,
+                fatal: Some(e),
+                error: None,
+            }
+        }
     };
     if handle.stop_flag.load(Ordering::SeqCst) {
-        return AttemptOutcome { had_url: false, fatal: None, error: None };
+        return AttemptOutcome {
+            had_url: false,
+            fatal: None,
+            error: None,
+        };
     }
+
+    // Rewrite the dial target to the forwarder: 127.0.0.1:{forwarder port}.
+    // Cloudflare gets `--url http://127.0.0.1:{port}` (the forwarder is local,
+    // so cfg.local_host is irrelevant for the dial), bore gets the port as its
+    // positional argument, and the frpc config gets localIP/localPort pointing
+    // at it. Everything else in the config stays identical.
+    let dial_cfg = with_forwarder_endpoint(cfg, forwarder.port());
 
     // Frp needs a generated config file and never prints its own public
     // endpoint, so both the command and the expected public URL are prepared
     // HERE, once per attempt: a rotated frps token or an edited server is
-    // picked up on every retry.
+    // picked up on every retry. The config dials the FORWARDER (dial_cfg), so
+    // all backends flow through the same stats/auth/allowlist path.
     let (mut cmd, expected_url) = match cfg.backend {
         Backend::Frp => {
-            let launch = match providers::prepare_frpc_config(&engine.app, cfg).await {
+            let launch = match providers::prepare_frpc_config(&engine.app, &dial_cfg).await {
                 Ok(launch) => launch,
                 // Unbound server / missing token / unwritable cache: a
                 // configuration failure the user must fix, so surface it as
                 // Error instead of retrying forever.
                 Err(e) => {
-                    return AttemptOutcome { had_url: false, fatal: Some(e), error: None };
+                    return AttemptOutcome {
+                        had_url: false,
+                        fatal: Some(e),
+                        error: None,
+                    };
                 }
             };
             (
@@ -430,7 +540,7 @@ async fn run_attempt(
                 launch.public_url,
             )
         }
-        _ => (providers::build_command(cfg, &binary), None),
+        _ => (providers::build_command(&dial_cfg, &binary), None),
     };
     cmd.stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -463,7 +573,11 @@ async fn run_attempt(
         let _ = child.start_kill();
         let _ = child.wait().await;
         handle.pid.store(0, Ordering::SeqCst);
-        return AttemptOutcome { had_url: false, fatal: None, error: None };
+        return AttemptOutcome {
+            had_url: false,
+            fatal: None,
+            error: None,
+        };
     }
 
     let st = handle.update(|s| {
@@ -564,8 +678,9 @@ async fn run_attempt(
         let _ = child.start_kill();
         match child.wait().await {
             Ok(status) => {
-                exit_note =
-                    Some(format!("tunnel process (pid {pid_for_note}) exited ({status})"))
+                exit_note = Some(format!(
+                    "tunnel process (pid {pid_for_note}) exited ({status})"
+                ))
             }
             Err(e) => exit_note = Some(format!("tunnel wait failed: {e}")),
         }
@@ -597,5 +712,189 @@ where
                 }
             }
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Local forwarder wiring (M3)
+// ---------------------------------------------------------------------------
+
+/// Copy of `cfg` with the dial target rewritten to the local forwarder
+/// (127.0.0.1:{port}). Used for the backend command (cloudflared `--url`,
+/// bore positional port) and for the generated frpc config.
+fn with_forwarder_endpoint(cfg: &TunnelConfig, forwarder_port: u16) -> TunnelConfig {
+    let mut dial = cfg.clone();
+    dial.local_host = "127.0.0.1".to_string();
+    dial.local_port = forwarder_port;
+    dial
+}
+
+/// Make sure this tunnel's local forwarder is up and return it.
+///
+/// * Reused across attempts AND restarts while it is still running and its
+///   upstream target matches — the listening port stays stable, so frpc
+///   config files regenerated per attempt keep the same localPort. Byte
+///   counters keep accumulating across attempts of the same run.
+/// * Replaced when it was stopped (previous run) or the tunnel's target was
+///   edited. The counters of the replacement start at zero.
+async fn ensure_forwarder(
+    engine: &Engine,
+    handle: &TunnelHandle,
+    cfg: &TunnelConfig,
+) -> Result<Arc<Forwarder>, String> {
+    // Bind the clone to a local FIRST: the MutexGuard temporary must be gone
+    // before any `.await` (std guards are not Send).
+    let existing = handle
+        .forwarder
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
+    if let Some(existing) = existing {
+        if !existing.is_stopped() && existing.upstream_matches(&cfg.local_host, cfg.local_port) {
+            return Ok(existing);
+        }
+        // Stale (stopped or retargeted): release it before making a new one.
+        existing.stop().await;
+    }
+
+    // Basic-auth password lives in the OS keychain, never in config files. A
+    // tunnel configured with auth but missing its keychain entry is a hard
+    // configuration error — running it UNPROTECTED would be the worse failure.
+    let auth_password = if cfg.auth.is_some() {
+        match servers_store::get_tunnel_auth_password(&engine.app, &cfg.id) {
+            Ok(Some(password)) => Some(password),
+            Ok(None) => {
+                return Err(format!(
+                    "隧道开启了访问鉴权，但钥匙串中没有对应密码 (auth is enabled but no password is stored for tunnel {})",
+                    cfg.id
+                ));
+            }
+            Err(e) => {
+                return Err(format!(
+                    "读取访问鉴权密码失败 (failed to read the tunnel auth password): {e}"
+                ));
+            }
+        }
+    } else {
+        None
+    };
+
+    let (fwd, port) = Forwarder::start(engine.app.clone(), cfg.clone(), auth_password).await?;
+    *handle.forwarder.lock().unwrap_or_else(|e| e.into_inner()) = Some(fwd.clone());
+    let line = format!(
+        "forwarder: listening on 127.0.0.1:{port} -> {}:{}",
+        cfg.local_host, cfg.local_port
+    );
+    handle.push_log(&line);
+    engine.emit_log(&cfg.id, "info", &line);
+    Ok(fwd)
+}
+
+/// Stop the tunnel's forwarder if one exists (idempotent, cheap when none).
+async fn stop_tunnel_forwarder(handle: &TunnelHandle) {
+    let fwd = handle
+        .forwarder
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
+    if let Some(fwd) = fwd {
+        fwd.stop().await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{AuthKind, ServerConfig, TunnelType};
+
+    fn sample_cfg(backend: Backend, local_port: u16) -> TunnelConfig {
+        TunnelConfig {
+            id: "t1".into(),
+            name: "t".into(),
+            tunnel_type: TunnelType::Http,
+            backend,
+            local_host: "192.168.1.10".into(),
+            local_port,
+            auto_start: false,
+            created_at: String::new(),
+            server_id: None,
+            subdomain: None,
+            remote_port: None,
+            auth: None,
+            ip_allowlist: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn cloudflare_and_bore_dial_the_forwarder() {
+        // The user's service lives on 192.168.1.10:8080; the tunnel binary must
+        // dial the forwarder on loopback instead.
+        let mut cfg = sample_cfg(Backend::Cloudflare, 8080);
+        let dial = with_forwarder_endpoint(&cfg, 41234);
+        assert_eq!(
+            providers::build_args(&dial),
+            vec![
+                "tunnel".to_string(),
+                "--url".to_string(),
+                "http://127.0.0.1:41234".to_string(),
+                "--no-autoupdate".to_string(),
+            ]
+        );
+        cfg.backend = Backend::Bore;
+        let dial = with_forwarder_endpoint(&cfg, 41234);
+        assert_eq!(
+            providers::build_args(&dial),
+            vec![
+                "local".to_string(),
+                "--to".to_string(),
+                providers::BORE_DEFAULT_SERVER.to_string(),
+                "41234".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn frp_config_dials_the_forwarder() {
+        let mut cfg = sample_cfg(Backend::Frp, 9000);
+        cfg.tunnel_type = TunnelType::Tcp;
+        cfg.remote_port = Some(17001);
+        cfg.server_id = Some("srv1".into());
+        let dial = with_forwarder_endpoint(&cfg, 41234);
+        let server = ServerConfig {
+            id: "srv1".into(),
+            name: "vps".into(),
+            host: "vps.example.com".into(),
+            port: 22,
+            username: "root".into(),
+            auth_kind: AuthKind::Password,
+            frps_bind_port: 7000,
+            frps_vhost_http_port: 8080,
+            frps_vhost_https_port: 8443,
+            frps_dashboard_port: 7500,
+            subdomain_host: None,
+            deployed: true,
+            frps_version: None,
+            created_at: String::new(),
+        };
+        let (text, _) = providers::build_frpc_toml(&dial, &server, "tok").unwrap();
+        assert!(text.contains("localIP = \"127.0.0.1\""), "{text}");
+        assert!(text.contains("localPort = 41234"), "{text}");
+        assert!(!text.contains("localPort = 9000"), "{text}");
+    }
+
+    #[test]
+    fn with_forwarder_endpoint_keeps_everything_else() {
+        let mut cfg = sample_cfg(Backend::Frp, 9000);
+        cfg.remote_port = Some(17001);
+        let dial = with_forwarder_endpoint(&cfg, 41234);
+        assert_eq!(dial.id, cfg.id);
+        assert_eq!(dial.name, cfg.name);
+        assert_eq!(dial.backend, cfg.backend);
+        assert_eq!(dial.tunnel_type, cfg.tunnel_type);
+        assert_eq!(dial.remote_port, cfg.remote_port);
+        assert_eq!(dial.server_id, cfg.server_id);
+        // Only the dial target changed.
+        assert_eq!(dial.local_port, 41234);
+        assert_eq!(dial.local_host, "127.0.0.1");
     }
 }
