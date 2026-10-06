@@ -29,7 +29,7 @@ const initialState: TunnelStoreState = {
   configs: [],
   states: {},
   binaryStatus: null,
-  installing: { cloudflare: false, bore: false },
+  installing: { cloudflare: false, bore: false, frp: false },
 };
 
 let state: TunnelStoreState = initialState;

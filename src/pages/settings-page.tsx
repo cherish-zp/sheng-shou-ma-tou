@@ -62,6 +62,11 @@ const ENGINE_META: Record<
     nameKey: "settings.engineBore",
     descKey: "settings.engineBoreDescription",
   },
+  frp: {
+    icon: Radio,
+    nameKey: "settings.engineFrp",
+    descKey: "settings.engineFrpDescription",
+  },
 };
 
 export function SettingsPage() {
