@@ -76,8 +76,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # macOS arm64（Apple Silicon）。如需 universal2 合并包，
-          # 可将两个 macos job 换成单个 --target universal-apple-darwin（见 docs/RELEASE.md）
+          # macOS arm64（Apple Silicon）。macOS 链路对中文 productName 稳健，
+          # .app/dmg 直接使用「圣手码头」（上传后由 patch-release-names job
+          # 修复 tauri-action 剥字导致的附件名）。
+          # 如需 universal2 合并包，可将两个 macos job 换成单个
+          # --target universal-apple-darwin（见 docs/RELEASE.md）
           - platform: macos-latest
             args: --target aarch64-apple-darwin
             slug: macos-arm64
@@ -85,11 +88,13 @@ jobs:
           - platform: macos-latest
             args: --target x86_64-apple-darwin
             slug: macos-intel
+          # Windows / Linux：rpm 规范化、NSIS 等工具链对非 ASCII 文件名
+          # 不可靠（实测剥字/构建失败），构建时覆盖为 ASCII productName。
           - platform: windows-latest
-            args: ''
+            args: --config '{"productName":"ShengShouMaTou"}'
             slug: windows-x64
           - platform: ubuntu-22.04 # 若 runner 退役可改 ubuntu-24.04
-            args: ''
+            args: --config '{"productName":"ShengShouMaTou"}'
             slug: linux-x64
 
     steps:
@@ -153,7 +158,7 @@ jobs:
           projectPath: .
           # tag 触发时创建 Release 草稿；手动触发时留空 -> 仅上传 artifacts
           tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
-          releaseName: ${{ startsWith(github.ref, 'refs/tags/v') && 'Pier v__VERSION__' || '' }}
+          releaseName: ${{ startsWith(github.ref, 'refs/tags/v') && '圣手码头 v__VERSION__' || '' }}
           releaseBody: '从下方 Assets 下载对应平台的安装包。更新内容见 [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md)。'
           # 直接发布（dataBasePro 同款链路）：tag 推送即出正式 Release
           releaseDraft: false
@@ -201,13 +206,54 @@ jobs:
             --title "[CI] ${{ matrix.slug }} 构建失败 @ ${{ github.ref_name }} (${{ github.run_id }})" \
             --body-file body.md || echo "::warning::diagnostic issue creation failed"
 
+  # ---------- 修复 macOS 中文附件名 ----------
+  # tauri-action 上传附件时剥除中文字符（圣手码头_0.1.1_aarch64.dmg →
+  # _0.1.1_aarch64.dmg）。macOS 的 .app/dmg 本体在构建端名字正确，
+  # 这里用 GitHub API 直接 PATCH 附件名恢复中文（无需重传）。
+  patch-release-names:
+    name: Patch CJK asset names
+    needs: build
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - name: Restore CJK prefix in asset names
+        run: |
+          python3 - << 'PYEOF'
+          import json, os, subprocess
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          tag = os.environ["TAG"]
+          display = "圣手码头"
+
+          assets = json.loads(subprocess.check_output(
+              ["gh", "api", f"repos/{repo}/releases/tags/{tag}",
+               "--jq", "[.assets[] | {id: .id, name: .name}]"]))
+          for a in assets:
+              name = a["name"]
+              if name[:1] in ("_", "-"):
+                  new_name = display + name
+                  print(f"patch: {name!r} -> {new_name!r}")
+                  subprocess.run(
+                      ["gh", "api", "-X", "PATCH",
+                       f"repos/{repo}/releases/assets/{a['id']}",
+                       "-f", f"name={new_name}"],
+                      check=True)
+              else:
+                  print(f"ok: {name!r}")
+          PYEOF
+
   # ---------- Gitee 同步（dataBasePro 模式）----------
   # GitHub Release 发布后，把附件同步到 Gitee Release。全程 best-effort：
   # 未配置 GITEE_TOKEN 时跳过；同步失败不阻塞 GitHub 发布（可用
   # scripts/sync-gitee-release.sh 本地兜底）。
   sync-gitee:
     name: Sync release to Gitee
-    needs: build
+    needs: [build, patch-release-names]
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
     permissions:
