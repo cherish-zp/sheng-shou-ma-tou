@@ -813,6 +813,7 @@ async fn prepare_cf_named_attempt(
     .await
     .map_err(|e| format!("ingress 更新任务执行失败：{e}"))
     .and_then(|r| r);
+    eprintln!("[pier][diag] cf-named prepare: ingress update result = {:?}", update.as_ref().map(|_| "ok"));
     if let Err(e) = update {
         return Err(format!(
             "更新 Cloudflare ingress 端口失败（API token 可能已过期或网络不可用）：{e}"

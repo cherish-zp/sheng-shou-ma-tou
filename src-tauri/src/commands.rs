@@ -51,20 +51,28 @@ fn data_dir(app: &AppHandle) -> PathBuf {
 fn migrate_keychain_secrets(app: &AppHandle) {
     use crate::servers_store as ss;
 
+
+    // Direct keyring reads — the ss::/cloudflare:: helpers now read the
+    // SQLite store, so the migration must go to the source itself.
+    fn legacy_get(account: &str) -> Option<String> {
+        let entry = keyring::Entry::new("com.masterfulhands.pier", account).ok()?;
+        match entry.get_password() {
+            Ok(v) => Some(v),
+            Err(keyring::Error::NoEntry) => None,
+            Err(e) => {
+                None
+            }
+        }
+    }
+
     let mut migrated = 0usize;
     // SSH secrets + frps tokens per server
     for srv in ss::load_servers(app) {
-        for (account, value) in [
-            (
-                ss::ssh_secret_account(&srv.id),
-                ss::try_ssh_secret(&srv.id),
-            ),
-            (
-                ss::frps_token_account(&srv.id),
-                ss::try_frps_token(&srv.id),
-            ),
+        for account in [
+            ss::ssh_secret_account(&srv.id),
+            ss::frps_token_account(&srv.id),
         ] {
-            if let Ok(Some(v)) = value {
+            if let Some(v) = legacy_get(&account) {
                 if crate::secrets_store::try_get(&account).ok().flatten().is_none() {
                     let _ = crate::secrets_store::set(&account, &v);
                     migrated += 1;
@@ -72,31 +80,19 @@ fn migrate_keychain_secrets(app: &AppHandle) {
             }
         }
     }
-    // Tunnel auth passwords + frps-token-cf / cf run+api tokens per tunnel
+    // Tunnel auth passwords + Cloudflare tokens per tunnel
     let tunnels_path = data_dir(app).join("tunnels.json");
     if let Ok(text) = std::fs::read_to_string(&tunnels_path) {
         if let Ok(configs) = serde_json::from_str::<Vec<crate::models::TunnelConfig>>(&text) {
             for cfg in configs {
-                let entries: Vec<(String, Result<Option<String>, String>)> = vec![
-                    (
-                        format!("tunnel-auth-{}", cfg.id),
-                        ss::get_tunnel_auth_password(app, &cfg.id),
-                    ),
-                    (
-                        format!("cf-{}", cfg.id),
-                        crate::cloudflare::try_api_token(&cfg.id),
-                    ),
-                    (
-                        format!("cf-tunnel-token-{}", cfg.id),
-                        crate::cloudflare::try_tunnel_run_token(&cfg.id),
-                    ),
-                    (
-                        format!("frps-token-cf-{}", cfg.id),
-                        crate::cloudflare::try_legacy_api_token(&cfg.id),
-                    ),
+                let entries = [
+                    format!("tunnel-auth-{}", cfg.id),
+                    format!("cf-{}", cfg.id),
+                    format!("cf-tunnel-token-{}", cfg.id),
+                    format!("frps-token-cf-{}", cfg.id),
                 ];
-                for (account, read) in entries {
-                    if let Ok(Some(v)) = read {
+                for account in entries {
+                    if let Some(v) = legacy_get(&account) {
                         if crate::secrets_store::try_get(&account).ok().flatten().is_none() {
                             let _ = crate::secrets_store::set(&account, &v);
                             migrated += 1;
@@ -105,9 +101,6 @@ fn migrate_keychain_secrets(app: &AppHandle) {
                 }
             }
         }
-    }
-    if migrated > 0 {
-        eprintln!("[pier] 已将 {migrated} 条钥匙串秘密迁移到本地秘密库");
     }
 }
 
