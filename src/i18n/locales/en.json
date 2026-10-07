@@ -508,5 +508,24 @@
     "help.editUpdateHostname": "Update fixed hostname",
     "help.storedToken": "Stored API token",
     "help.revealToken": "Show/hide token"
+  },
+  "update": {
+    "update.settingsTitle": "About & Updates",
+    "update.currentVersion": "Current version: {version}",
+    "update.statusLabel": "Update status",
+    "update.statusIdle": "Idle",
+    "update.statusChecking": "Checking for updates…",
+    "update.statusUpToDate": "You are up to date",
+    "update.statusAvailable": "New version {version} available",
+    "update.statusError": "Check/update failed",
+    "update.checkNow": "Check for updates",
+    "update.autoCheckHint": "The app checks for updates on startup and then every hour. You can also check manually anytime.",
+    "update.available": "New version {version} available",
+    "update.installNow": "Update now",
+    "update.ignoreVersion": "Skip this version",
+    "update.downloading": "Downloading update…",
+    "update.readyToRestart": "Update ready — restart to apply",
+    "update.restartNow": "Restart & update",
+    "update.checkFailed": "Failed to check for updates"
   }
 }

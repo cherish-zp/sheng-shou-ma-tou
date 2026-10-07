@@ -8,6 +8,7 @@ import { HomePage } from "@/pages/home-page";
 import { ServersPage } from "@/pages/servers-page";
 import { SettingsPage } from "@/pages/settings-page";
 import { HelpPage } from "@/pages/help-page";
+import { UpdateBanner } from "@/components/update/update-banner";
 
 export default function App() {
   return (
@@ -22,7 +23,8 @@ export default function App() {
         <Route path="/settings" element={<SettingsPage />} />
             </Route>
           </Routes>
-          <Toaster position="bottom-right" closeButton />
+          <UpdateBanner />
+      <Toaster position="bottom-right" closeButton />
         </HashRouter>
       </TooltipProvider>
     </ThemeProvider>

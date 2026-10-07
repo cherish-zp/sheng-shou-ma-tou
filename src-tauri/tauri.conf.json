@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "圣手码头",
   "mainBinaryName": "ShengShouMaTou",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "identifier": "com.cherish.shengshoumatou",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -37,6 +37,17 @@
     ],
     "macOS": {
       "minimumSystemVersion": "10.15"
-    }
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDE2QTdGNUY4QTdCNzI4OUQKUldTZEtMZW4rUFduRnVBVGVaNnlaTlVIditRcDhVY2JKSVg3dG03K1RvK0hmS0tTamlWcFpQZUoK",
+      "endpoints": [
+        "https://gitee.com/princess-zp/sheng-shou-ma-tou/releases/download/latest/latest.json",
+        "https://github.com/cherish-zp/sheng-shou-ma-tou/releases/latest/download/latest.json"
+      ]
+    },
+    "process": {}
   }
 }

@@ -14,6 +14,8 @@ import {
   Sun,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useAppUpdater } from "@/composables/use-app-updater";
+import { UpdateSettingsSection } from "@/components/update/update-settings-section";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -88,6 +90,7 @@ export function SettingsPage() {
   const { t, i18n } = useTranslation();
   const { theme, setTheme } = useTheme();
   const { binaryStatus, installing } = useTunnelStore();
+  const updater = useAppUpdater();
 
   useEffect(() => {
     void refreshBinaryStatus();
@@ -102,6 +105,7 @@ export function SettingsPage() {
       </header>
 
       <div className="mt-8 flex flex-col gap-6">
+      <UpdateSettingsSection currentVersion="0.3.0" updater={updater} />
         {/* Appearance */}
         <Card>
           <CardHeader>

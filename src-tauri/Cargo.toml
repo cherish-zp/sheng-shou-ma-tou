@@ -1,6 +1,6 @@
 [package]
 name = "pier"
-version = "0.2.0"
+version = "0.3.0"
 description = "An open-source, polished desktop tunneling tool — expose local ports to the internet in one click."
 authors = ["cherish-zp"]
 license = "MIT"
@@ -47,6 +47,8 @@ keyring = "4.2.0"
 toml = "1.1.6"
 base64 = "0.23.1"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
+tauri-plugin-updater = "2.13.1"
+tauri-plugin-process = "2.4.0"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
