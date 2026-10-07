@@ -301,10 +301,13 @@ jobs:
           rm -rf dist && mkdir -p dist
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir dist
 
-          # 4) 幂等上传：同名附件跳过，其余重试 4 次、间隔 30s
+          # 4) 幂等上传：同名附件跳过，其余重试 4 次、间隔 30s。
+          # Gitee 附件名支持中文：上传前把 ShengShouMaTou 前缀换成显示名「圣手码头」
           EXISTING=$(curl -sf "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases/${RELEASE_ID}/attach_files?access_token=${GITEE_TOKEN}" | jq -r '.[].browser_download_url' | xargs -r -n1 basename || true)
           for f in dist/*; do
-            NAME=$(basename "$f")
+            BASE=$(basename "$f")
+            NAME="圣手码头${BASE#ShengShouMaTou}"
+            if [ "$NAME" != "$BASE" ]; then mv "$f" "dist/$NAME"; f="dist/$NAME"; fi
             if echo "$EXISTING" | grep -qx "$NAME"; then
               echo "skip existing: $NAME"; continue
             fi

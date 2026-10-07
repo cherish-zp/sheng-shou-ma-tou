@@ -40,7 +40,9 @@ gh release download "$TAG" --repo "$GITHUB_REPO" --dir dist-gitee-sync
 EXISTING=$(curl -sf "${API}/releases/${RELEASE_ID}/attach_files?access_token=${GITEE_TOKEN}" \
   | jq -r '.[].browser_download_url' | xargs -r -n1 basename || true)
 for f in dist-gitee-sync/*; do
-  NAME=$(basename "$f")
+  BASE=$(basename "$f")
+  NAME="圣手码头${BASE#ShengShouMaTou}"
+  if [ "$NAME" != "$BASE" ]; then mv "$f" "dist-gitee-sync/$NAME"; f="dist-gitee-sync/$NAME"; fi
   if echo "$EXISTING" | grep -qx "$NAME"; then
     echo "skip existing: $NAME"; continue
   fi
