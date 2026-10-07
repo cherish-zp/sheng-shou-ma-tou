@@ -6,7 +6,8 @@
   "nav": {
     "tunnels": "Tunnels",
     "servers": "Servers",
-    "settings": "Settings"
+    "settings": "Settings",
+    "help": "Help"
   },
   "common": {
     "copy": "Copy",
@@ -460,5 +461,42 @@
   "errors": {
     "loadFailed": "Failed to load tunnels",
     "unknown": "Something went wrong"
+  },
+  "help": {
+    "title": "Help Center",
+    "subtitle": "Guide to fixed hostnames (Cloudflare Named Tunnel)",
+    "modeTempTitle": "Temporary hostname",
+    "badgeDefault": "Default",
+    "modeTempDesc": "No account needed — works instantly. The hostname changes every start; great for quick demos and debugging.",
+    "modeFixedTitle": "Fixed hostname",
+    "badgeFixed": "Never changes",
+    "modeFixedDesc": "Bind your Cloudflare account and domain — the subdomain stays fixed across reconnects, restarts and new machines.",
+    "getTokenTitle": "Get a Cloudflare API Token (3 steps)",
+    "getTokenSubtitle": "You only do this once; the token is stored in your OS keychain and never uploaded.",
+    "step1Title": "Open the Cloudflare tokens page and create a custom token",
+    "step1Body": "Sign in to Cloudflare, go to “My Profile → API Tokens”, click “Create Token → Create Custom Token → Get started”.",
+    "step2Title": "Configure the three permissions",
+    "step2Body": "First row: Account / Cloudflare Tunnel / Edit. Add two more rows: Zone / DNS / Edit and Zone / Zone / Read. Zone Resources: Include → All zones.",
+    "step3Title": "Continue to summary, then create and copy",
+    "step3Body": "Click “Continue to summary”, confirm, create the token and copy the value (shown only once), then paste it into the ShengShouMaTou new-tunnel wizard.",
+    "openTokenPage": "Open the Cloudflare tokens page",
+    "permTitle": "Permissions the token needs",
+    "permScope": "Scope",
+    "permName": "Permission",
+    "permLevelCol": "Level",
+    "permAccount": "Account",
+    "permZone": "Zone",
+    "permEdit": "Edit",
+    "permRead": "Read",
+    "permFooter": "Tip: you can Roll the token anytime in the Cloudflare dashboard — existing tunnels keep working.",
+    "faqTitle": "FAQ",
+    "faq1Q": "What does a fixed hostname require?",
+    "faq1A": "A domain with its NS hosted on Cloudflare (bought anywhere; hosting is free). The free plan includes fixed hostnames.",
+    "faq2Q": "Token verification failed?",
+    "faq2A": "Usually a missing permission: make sure the three levels are Edit / Edit / Read and the zone resources include your domain. Fix it and retry — no need to recreate the token.",
+    "faq3Q": "It says the subdomain is taken?",
+    "faq3A": "A DNS record for that subdomain already exists and points elsewhere. Pick another subdomain, or delete the old record in the Cloudflare dashboard first.",
+    "faq4Q": "The tunnel never connects?",
+    "faq4A": "Cloudflare tunnels need outbound access to port 7844 (QUIC/HTTP2). Some networks block UDP; the app already defaults to the more compatible HTTP2 protocol."
   }
 }

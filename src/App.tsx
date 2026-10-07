@@ -7,6 +7,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { HomePage } from "@/pages/home-page";
 import { ServersPage } from "@/pages/servers-page";
 import { SettingsPage } from "@/pages/settings-page";
+import { HelpPage } from "@/pages/help-page";
 
 export default function App() {
   return (
@@ -17,7 +18,8 @@ export default function App() {
             <Route element={<AppLayout />}>
               <Route index element={<HomePage />} />
               <Route path="/servers" element={<ServersPage />} />
-              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/help" element={<HelpPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
             </Route>
           </Routes>
           <Toaster position="bottom-right" closeButton />

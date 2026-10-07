@@ -6,7 +6,8 @@
   "nav": {
     "tunnels": "隧道",
     "servers": "服务器",
-    "settings": "设置"
+    "settings": "设置",
+    "help": "帮助"
   },
   "common": {
     "copy": "复制",
@@ -460,5 +461,42 @@
   "errors": {
     "loadFailed": "加载隧道列表失败",
     "unknown": "发生未知错误"
+  },
+  "help": {
+    "title": "帮助中心",
+    "subtitle": "固定域名（Cloudflare Named Tunnel）使用指南",
+    "modeTempTitle": "临时域名",
+    "badgeDefault": "默认",
+    "modeTempDesc": "无需任何账号，启动即用。每次启动域名随机变化，适合临时演示与调试。",
+    "modeFixedTitle": "固定域名",
+    "badgeFixed": "永久不变",
+    "modeFixedDesc": "绑定你的 Cloudflare 账号与域名，子域名永久固定，断线重连、重启、换机都不变。",
+    "getTokenTitle": "获取 Cloudflare API Token（三步）",
+    "getTokenSubtitle": "只需要做一次；Token 保存在本机钥匙串，不会上传。",
+    "step1Title": "打开 Cloudflare 令牌页面并创建自定义令牌",
+    "step1Body": "登录 Cloudflare 后进入「我的个人资料 → API 令牌」，点击「创建令牌 → 自定义令牌 → 开始使用」。",
+    "step2Title": "按清单配置三条权限",
+    "step2Body": "权限区第一行选「帐户 / Cloudflare Tunnel / 编辑」；再添加两行：「区域 / DNS / 编辑」与「区域 / 区域 / 读取」。区域资源选择「包括 → 所有区域」。",
+    "step3Title": "继续 → 创建令牌并复制",
+    "step3Body": "点击「继续以显示摘要」确认后创建，复制生成的 Token（只显示一次），粘贴到圣手码头的新建隧道向导中。",
+    "openTokenPage": "打开 Cloudflare 令牌页面",
+    "permTitle": "Token 需要的权限清单",
+    "permScope": "范围",
+    "permName": "权限名称",
+    "permLevelCol": "级别",
+    "permAccount": "帐户",
+    "permZone": "区域",
+    "permEdit": "编辑",
+    "permRead": "读取",
+    "permFooter": "提示：也可以创建后随时在 Cloudflare 后台对 Token 执行「轮换」，不影响已建好的隧道。",
+    "faqTitle": "常见问题",
+    "faq1Q": "固定域名的前提是什么？",
+    "faq1A": "需要一个将 NS 托管到 Cloudflare 的域名（域名在任何注册商购买均可，托管免费）。免费套餐即可使用固定域名功能。",
+    "faq2Q": "Token 验证失败怎么办？",
+    "faq2A": "多为权限配置不全：确认三条权限的级别分别为「编辑 / 编辑 / 读取」，且区域资源包含你的域名。修正后无需重建 Token，重试验证即可。",
+    "faq3Q": "提示子域名已被占用？",
+    "faq3A": "该子域名的 DNS 记录已存在且指向其他隧道。换一个子域名，或在 Cloudflare 后台删除旧记录后重试。",
+    "faq4Q": "隧道一直连不上？",
+    "faq4A": "Cloudflare 隧道需要本机能够出站访问 7844 端口（QUIC/HTTP2）。部分网络会拦截 UDP，应用已默认使用更兼容的 HTTP2 协议。"
   }
 }
