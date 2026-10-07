@@ -5,6 +5,30 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本 2.0.0](https://semver.org/lang/zh-CN/)。
 
+## [0.3.0] - 2026-10-07
+
+### Added
+- **应用内自动更新**（tauri-plugin-updater + dbx 式编排）：
+  - 双源检查端点：Gitee 常驻 latest release（国内快）优先，GitHub 漂移直链兜底
+  - 启动静默检查 + 每 60 分钟定时 + 设置页「检查更新」手动触发
+  - 发现新版本 → 底部横幅（版本/说明/立即更新/忽略此版本）→ 下载进度条 → 「重启并更新」
+  - 三平台原地更新：macOS 替换 .app / Windows NSIS 静默 / Linux 替换 AppImage
+  - minisign 签名验证（公钥内嵌，防更新包篡改）
+- CI：更新包签名 + Gitee 常驻 latest release 维护（latest.json 的 URL 自动重写为
+  Gitee 国内直链）+ 独立 sync-gitee 手动重跑工作流
+- `docs/AUTO-UPDATE.md`：通用自动更新方案文档（任何 Tauri 2 项目可复用）
+
+### Changed
+- 应用图标更新至新品牌视觉
+- 隧道启停开关选中态改为绿色（运行态视觉）
+- 菜单宽度与文案修正（清理项去重/中文化）
+
+### Fixed
+- Named tunnel 强制 http2（QUIC 阻断网络下永久卡「等待分配公网地址」）
+- 秘密存储迁移至本地 SQLite（未签名应用每次重建触发钥匙串授权弹窗的问题彻底解决）
+- 钥匙串 → SQLite 迁移改为直读钥匙串；更新路由请求补 config 包裹（CF 1030）
+- 侧边栏导航高亮互斥、双实例/双托盘图标
+
 ## [0.2.0] - 2026-10-07
 
 ### Added
