@@ -422,7 +422,6 @@ pub fn cf_list_zones(token: String) -> Result<Vec<CfZone>, String> {
 /// tunnels.json.
 #[tauri::command]
 pub fn cf_provision(
-    app: AppHandle,
     state: State<'_, AppState>,
     input: CfProvisionInput,
 ) -> Result<TunnelConfig, String> {
@@ -431,9 +430,7 @@ pub fn cf_provision(
     }
     let cfg = crate::cloudflare::provision(&input)?;
     let run_token = crate::cloudflare::get_tunnel_run_token(&cfg.id)?;
-    // API token reuse of the keyring account slot: `cf-{tunnel_id}` keeps
-    // Cloudflare credentials grouped apart from SSH secrets.
-    crate::servers_store::set_frps_token(&app, &format!("cf-{}", cfg.id), &input.token)?;
+    crate::cloudflare::set_api_token(&cfg.id, &input.token)?;
     crate::cloudflare::set_tunnel_run_token(&cfg.id, &run_token)?;
     state.store.add(cfg.clone())?;
     Ok(cfg)
@@ -451,11 +448,7 @@ pub fn cf_deprovision(
     delete_dns: bool,
 ) -> Result<(), String> {
     crate::cloudflare::deprovision(&token, &zone_id, &cf_tunnel_id, delete_dns)?;
-    let _ = crate::servers_store::set_frps_token(
-        &state.app,
-        &format!("cf-{id}"),
-        "",
-    );
+    let _ = crate::cloudflare::delete_stored_tokens(&id);
     state.store.remove(&id)?;
     Ok(())
 }

@@ -38,6 +38,9 @@ const API_BASE: &str = "https://api.cloudflare.com/client/v4";
 const USER_AGENT: &str = concat!("ShengShouMaTou/", env!("CARGO_PKG_VERSION"));
 /// Only bounds the TCP/TLS handshake; API payloads are small JSON.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
+/// Whole-request cap: API payloads are small JSON — anything slower is a
+/// hung connection and must not stall a tunnel start forever.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 /// Hard cap on zone-list pages (50/page => 2000 zones) so a misbehaving
 /// server reporting an ever-growing `total_pages` cannot spin forever.
 const MAX_ZONE_PAGES: u32 = 40;
@@ -95,6 +98,12 @@ fn keychain_set(account: &str, secret: &str) -> Result<(), String> {
     open_entry(account)?
         .set_password(secret)
         .map_err(|e| format!("写入钥匙串失败（{account}）：{e}"))
+}
+
+fn keychain_delete(account: &str) -> Result<(), String> {
+    open_entry(account)?
+        .delete_credential()
+        .map_err(|e| format!("删除钥匙串失败（{account}）：{e}"))
 }
 
 fn keychain_get(account: &str) -> Result<String, String> {
@@ -259,6 +268,7 @@ fn http_client() -> Result<reqwest::Client, CfApiError> {
     reqwest::Client::builder()
         .user_agent(USER_AGENT)
         .connect_timeout(CONNECT_TIMEOUT)
+        .timeout(REQUEST_TIMEOUT)
         .build()
         .map_err(|e| CfApiError::plain(format!("failed to build HTTP client: {e}")))
 }
@@ -366,7 +376,32 @@ pub fn get_tunnel_run_token(tunnel_id: &str) -> Result<String, String> {
 /// under keychain `cf-{tunnel_id}` (the engine needs it to retarget the
 /// remote ingress before every start attempt).
 pub fn get_api_token(tunnel_id: &str) -> Result<String, String> {
-    keychain_get(&api_token_account(tunnel_id))
+    match keychain_get(&api_token_account(tunnel_id)) {
+        Ok(v) => Ok(v),
+        // Migration: the first v0.2.0 build stored the API token under the
+        // frp-style slot (`frps-token-cf-{id}`) by accident. Read it from
+        // there, move it to the correct slot and delete the stray.
+        Err(missing) => match keychain_get(&format!("frps-token-cf-{tunnel_id}")) {
+            Ok(v) => {
+                keychain_set(&api_token_account(tunnel_id), &v)?;
+                let _ = keychain_delete(&format!("frps-token-cf-{tunnel_id}"));
+                Ok(v)
+            }
+            Err(_) => Err(missing),
+        },
+    }
+}
+
+/// Store the Cloudflare API token under keychain `cf-{tunnel_id}`.
+pub fn set_api_token(tunnel_id: &str, token: &str) -> Result<(), String> {
+    keychain_set(&api_token_account(tunnel_id), token)
+}
+
+/// Remove both keychain slots for a tunnel (local delete cleanup).
+pub fn delete_stored_tokens(tunnel_id: &str) {
+    let _ = keychain_delete(&api_token_account(tunnel_id));
+    let _ = keychain_delete(&format!("{RUN_TOKEN_PREFIX}{tunnel_id}"));
+    let _ = keychain_delete(&format!("frps-token-cf-{tunnel_id}"));
 }
 
 /// Delete the remote tunnel object. `delete_dns` also removes the CNAME

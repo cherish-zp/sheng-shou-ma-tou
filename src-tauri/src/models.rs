@@ -34,6 +34,9 @@ pub enum Backend {
     Frp,
     /// Cloudflare Named Tunnel — a user-owned fixed hostname
     /// (`https://sub.domain`) provisioned via the Cloudflare API.
+    /// The explicit rename keeps the camelCase wire format the frontend
+    /// matches on; the alias keeps pre-fix tunnels.json data readable.
+    #[serde(rename = "cloudflareNamed", alias = "cloudflarenamed")]
     CloudflareNamed,
 }
 
