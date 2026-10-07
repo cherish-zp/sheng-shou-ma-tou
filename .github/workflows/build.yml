@@ -225,12 +225,16 @@ jobs:
       - name: Sync assets to Gitee release
         if: env.GITEE_TOKEN != ''
         continue-on-error: true
+        env:
+          # gh CLI 需要显式 token（Actions 不会自动注入环境变量）
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           API="https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}"
 
           # 1) GitHub Release 正文（tauri-action 已生成）
           BODY=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body)
+          echo "GitHub release body fetched (${#BODY} chars)"
 
           # 2) Gitee Release：存在则复用，不存在则创建（幂等）
           RELEASE_ID=$(curl -sf --connect-timeout 20 "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases/tags/${TAG}?access_token=${GITEE_TOKEN}" | jq -r '.id // empty' || true)
@@ -239,7 +243,11 @@ jobs:
             PAYLOAD=$(jq -n --arg tag "$TAG" --arg body "$BODY" \
               '{tag_name: $tag, name: ("Pier " + $tag), body: $body, prerelease: false, target_commitish: "main"}')
             RELEASE_ID=$(curl -sf --connect-timeout 20 -X POST "${API}/releases?access_token=${GITEE_TOKEN}" \
-              -H 'Content-Type: application/json' -d "$PAYLOAD" | jq -r '.id')
+              -H 'Content-Type: application/json' -d "$PAYLOAD" | jq -r '.id') || true
+            if [ -z "${RELEASE_ID}" ]; then
+              echo "::error::failed to create Gitee release (check GITEE_TOKEN permissions: projects)"
+              exit 1
+            fi
           fi
           echo "Gitee release id: ${RELEASE_ID}"
 
