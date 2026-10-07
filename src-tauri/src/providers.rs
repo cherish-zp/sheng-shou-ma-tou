@@ -676,7 +676,13 @@ mod tests {
         // argv stays free of the token.
         assert_eq!(
             std_cmd.get_args().collect::<Vec<_>>(),
-            vec![std::ffi::OsStr::new("tunnel"), std::ffi::OsStr::new("--no-autoupdate"), std::ffi::OsStr::new("run")]
+            vec![
+                std::ffi::OsStr::new("tunnel"),
+                std::ffi::OsStr::new("--protocol"),
+                std::ffi::OsStr::new("http2"),
+                std::ffi::OsStr::new("--no-autoupdate"),
+                std::ffi::OsStr::new("run"),
+            ]
         );
     }
 
