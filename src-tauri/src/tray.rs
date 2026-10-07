@@ -49,7 +49,9 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
         .tooltip(crate::brand::DISPLAY_NAME_ZH);
 
     if let Ok(icon) = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png")) {
-        builder = builder.icon(icon);
+        // macOS 菜单栏模板图：随深/浅色菜单栏自动反色（v0.1.1 双图标修复——
+        // tauri.conf.json 的声明式 trayIcon 已移除，托盘统一由这里创建）。
+        builder = builder.icon(icon).icon_as_template(true);
     }
 
     let tray = builder.build(app)?;

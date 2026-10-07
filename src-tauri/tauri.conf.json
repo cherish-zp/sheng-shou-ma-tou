@@ -21,12 +21,6 @@
         "center": true
       }
     ],
-    "trayIcon": {
-      "id": "pier-tray",
-      "iconPath": "icons/tray.png",
-      "iconAsTemplate": true,
-      "tooltip": "圣手码头"
-    },
     "security": {
       "csp": null
     }
