@@ -498,6 +498,9 @@
     "faq3Q": "提示子域名已被占用？",
     "faq3A": "该子域名的 DNS 记录已存在且指向其他隧道。换一个子域名，或在 Cloudflare 后台删除旧记录后重试。",
     "faq4Q": "隧道一直连不上？",
-    "faq4A": "Cloudflare 隧道需要本机能够出站访问 7844 端口（QUIC/HTTP2）。部分网络会拦截 UDP，应用已默认使用更兼容的 HTTP2 协议。"
+    "faq4A": "Cloudflare 隧道需要本机能够出站访问 7844 端口（QUIC/HTTP2）。部分网络会拦截 UDP，应用已默认使用更兼容的 HTTP2 协议。",
+    "help.editUpdateHostname": "更新固定域名",
+    "help.storedToken": "已保存的 API Token",
+    "help.revealToken": "查看/隐藏 Token"
   }
 }

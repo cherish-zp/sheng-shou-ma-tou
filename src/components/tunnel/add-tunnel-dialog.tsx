@@ -35,6 +35,7 @@ import { cn, copyText, errorMessage, randomId, randomPassword } from "@/lib/util
 import { api } from "@/lib/tauri";
 import { mergeState, upsertConfig } from "@/store/tunnel-store";
 import { CfBindFlow } from "@/components/tunnel/cf-bind-flow";
+import { CfHostnameEditor } from "@/components/tunnel/cf-hostname-editor";
 import type {
   ServerConfig,
   TunnelAuth,
@@ -623,12 +624,19 @@ export function AddTunnelDialog({
             ) : null}
 
             {/* Backend auto-mapping note */}
-            <div className="flex items-start gap-2.5 rounded-lg border bg-muted/40 px-3 py-2.5">
-              <Waypoints className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-              <p className="text-[13px] leading-relaxed text-muted-foreground">
-                {backendNote}
-              </p>
-            </div>
+            {backendNote === "__CF_HOSTNAME_EDITOR__" && editTunnel ? (
+              <CfHostnameEditor
+                tunnel={editTunnel}
+                onUpdated={(saved: TunnelConfig) => upsertConfig(saved)}
+              />
+            ) : (
+              <div className="flex items-start gap-2.5 rounded-lg border bg-muted/40 px-3 py-2.5">
+                <Waypoints className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                <p className="text-[13px] leading-relaxed text-muted-foreground">
+                  {backendNote}
+                </p>
+              </div>
+            )}
 
             {/* Fixed hostname: the 3-step Cloudflare bind flow (replaces the
                 plain submit button). Appears once the local target is valid. */}

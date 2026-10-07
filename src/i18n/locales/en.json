@@ -498,6 +498,9 @@
     "faq3Q": "It says the subdomain is taken?",
     "faq3A": "A DNS record for that subdomain already exists and points elsewhere. Pick another subdomain, or delete the old record in the Cloudflare dashboard first.",
     "faq4Q": "The tunnel never connects?",
-    "faq4A": "Cloudflare tunnels need outbound access to port 7844 (QUIC/HTTP2). Some networks block UDP; the app already defaults to the more compatible HTTP2 protocol."
+    "faq4A": "Cloudflare tunnels need outbound access to port 7844 (QUIC/HTTP2). Some networks block UDP; the app already defaults to the more compatible HTTP2 protocol.",
+    "help.editUpdateHostname": "Update fixed hostname",
+    "help.storedToken": "Stored API token",
+    "help.revealToken": "Show/hide token"
   }
 }

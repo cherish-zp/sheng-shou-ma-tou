@@ -68,6 +68,10 @@ export const api = {
     cfTunnelId: string;
     deleteDns: boolean;
   }) => invoke<void>("cf_deprovision", { ...args }),
+  cfUpdateHostname: (args: { id: string; zoneId: string; subdomain: string }) =>
+    invoke<TunnelConfig>("cf_update_hostname", args),
+  cfGetApiToken: (id: string) => invoke<string>("cf_get_api_token", { id }),
+  cfListZonesStored: (id: string) => invoke<CfZone[]>("cf_list_zones_stored", { id }),
 };
 
 export function onTunnelState(
