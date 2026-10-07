@@ -79,6 +79,10 @@ pub struct TunnelConfig {
     /// `public_url` is `https://{cf_hostname}` and never changes.
     #[serde(default)]
     pub cf_hostname: Option<String>,
+    /// CloudflareNamed only: Cloudflare account id — needed to update the
+    /// remote ingress (service port follows the local forwarder).
+    #[serde(default)]
+    pub cf_account_id: Option<String>,
     /// Only allow connections from these IPs/CIDRs; empty = allow all.
     #[serde(default)]
     pub ip_allowlist: Vec<String>,

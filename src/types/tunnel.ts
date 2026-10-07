@@ -40,6 +40,8 @@ export interface TunnelConfig {
   cfTunnelId?: string | null;
   /** CloudflareNamed only: full fixed hostname (`mac.example.com`). */
   cfHostname?: string | null;
+  /** CloudflareNamed only: Cloudflare account id (remote ingress updates). */
+  cfAccountId?: string | null;
   /** Only allow these IPs/CIDRs; empty = allow all. */
   ipAllowlist?: string[];
 }

@@ -286,6 +286,7 @@ fn into_tunnel_config(proxy: RawProxy, server_id: Option<&str>) -> Option<Tunnel
         ip_allowlist: Vec::new(),
         cf_tunnel_id: None,
         cf_hostname: None,
+        cf_account_id: None,
     })
 }
 
