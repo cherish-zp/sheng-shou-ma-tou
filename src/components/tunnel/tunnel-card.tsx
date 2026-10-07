@@ -229,24 +229,10 @@ export function TunnelCard({ tunnel, state, onEdit, onShowLogs, onDelete }: Tunn
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-40">
-                {isCfNamed ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <DropdownMenuItem disabled>
-                        <Pencil />
-                        {t("card.editTunnel")}
-                      </DropdownMenuItem>
-                    </TooltipTrigger>
-                    <TooltipContent side="left">
-                      {t("card.editDisabledCfNamed")}
-                    </TooltipContent>
-                  </Tooltip>
-                ) : (
-                  <DropdownMenuItem onSelect={() => onEdit(tunnel)}>
-                    <Pencil />
-                    {t("card.editTunnel")}
-                  </DropdownMenuItem>
-                )}
+                <DropdownMenuItem onSelect={() => onEdit(tunnel)}>
+                  <Pencil />
+                  {t("card.editTunnel")}
+                </DropdownMenuItem>
                 <DropdownMenuItem
                   variant="destructive"
                   onSelect={() => setConfirmOpen(true)}

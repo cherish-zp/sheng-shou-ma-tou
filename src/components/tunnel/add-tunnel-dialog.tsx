@@ -375,11 +375,15 @@ export function AddTunnelDialog({
   }
 
   const backendNote = isEdit
-    ? editTunnel?.backend === "frp"
-      ? t("add.backendMappingFrpGeneric")
-      : tunnelType === "http"
-        ? t("add.backendMappingHttp")
-        : t("add.backendMappingTcp")
+    ? editTunnel?.backend === "cloudflareNamed"
+      ? t("add.backendMappingCfNamedEdit", {
+          hostname: editTunnel.cfHostname || "",
+        })
+      : editTunnel?.backend === "frp"
+        ? t("add.backendMappingFrpGeneric")
+        : tunnelType === "http"
+          ? t("add.backendMappingHttp")
+          : t("add.backendMappingTcp")
     : useFrp
       ? t("add.backendMappingFrp", {
           name: selectedServer?.name || selectedServer?.host || "",

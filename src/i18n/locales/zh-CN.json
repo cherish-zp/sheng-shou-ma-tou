@@ -172,7 +172,8 @@
       "provisionFailed": "创建固定域名隧道失败",
       "success": "固定域名隧道「{{name}}」已启动",
       "needLocalFirst": "请先在上方填写有效的本地地址和端口，再绑定固定域名。"
-    }
+    },
+    "backendMappingCfNamedEdit": "固定域名 {hostname} 不可更改；可修改本地服务地址、端口与访问控制，保存后自动生效。"
   },
   "logs": {
     "title": "运行日志",

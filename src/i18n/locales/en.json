@@ -172,7 +172,8 @@
       "provisionFailed": "Failed to create the fixed-hostname tunnel",
       "success": "Fixed-hostname tunnel “{{name}}” started",
       "needLocalFirst": "Fill in a valid local host and port above before linking a fixed hostname."
-    }
+    },
+    "backendMappingCfNamedEdit": "Fixed hostname {hostname} cannot be changed. You can edit the local service address, port and access control — changes apply on the next start."
   },
   "logs": {
     "title": "Logs",

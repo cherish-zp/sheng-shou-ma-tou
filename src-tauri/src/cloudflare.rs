@@ -745,7 +745,11 @@ async fn update_ingress_service_async(
         .cloned()
         .unwrap_or_else(|| envelope.result.clone());
     let updated = apply_ingress_port(&config, fwd_port)?;
-    cf_request(reqwest::Method::PUT, token, &path, Some(updated))
+    // The PUT body must nest the ingress under `config` (official schema):
+    // {"config": {"ingress": [...]}} — a bare ingress array fails with
+    // Cloudflare error 1030 "missing field `config`".
+    let body = serde_json::json!({ "config": updated });
+    cf_request(reqwest::Method::PUT, token, &path, Some(body))
         .await
         .map_err(|e| format!("写回远程 ingress 配置失败：{e}"))?;
     Ok(())
