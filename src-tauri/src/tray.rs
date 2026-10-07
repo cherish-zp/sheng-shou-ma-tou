@@ -185,6 +185,7 @@ fn backend_label(backend: Backend) -> &'static str {
         Backend::Cloudflare => "cloudflare",
         Backend::Bore => "bore",
         Backend::Frp => "frp",
+        Backend::CloudflareNamed => "cloudflare",
     }
 }
 

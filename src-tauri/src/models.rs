@@ -32,6 +32,9 @@ pub enum Backend {
     Cloudflare,
     Bore,
     Frp,
+    /// Cloudflare Named Tunnel — a user-owned fixed hostname
+    /// (`https://sub.domain`) provisioned via the Cloudflare API.
+    CloudflareNamed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -69,6 +72,13 @@ pub struct TunnelConfig {
     /// HTTP Basic Auth for this tunnel; password in the OS keychain.
     #[serde(default)]
     pub auth: Option<TunnelAuth>,
+    /// CloudflareNamed only: the remote tunnel object id (UUID).
+    #[serde(default)]
+    pub cf_tunnel_id: Option<String>,
+    /// CloudflareNamed only: full fixed hostname (`mac.example.com`).
+    /// `public_url` is `https://{cf_hostname}` and never changes.
+    #[serde(default)]
+    pub cf_hostname: Option<String>,
     /// Only allow connections from these IPs/CIDRs; empty = allow all.
     #[serde(default)]
     pub ip_allowlist: Vec<String>,
@@ -282,4 +292,39 @@ pub struct TunnelStats {
     pub bytes_out: u64,
     /// Currently open proxied connections.
     pub conn_active: u32,
+}
+
+// ---------------------------------------------------------------------------
+// Cloudflare Named Tunnel (v0.2.0) — API-driven fixed hostnames
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CfAccount {
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CfZone {
+    pub id: String,
+    pub name: String,
+    pub account_id: String,
+}
+
+/// Everything needed to provision a fixed-hostname tunnel in one shot.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CfProvisionInput {
+    /// Cloudflare API token (Account Cloudflare Tunnel:Edit + Zone DNS:Edit + Zone:Read).
+    pub token: String,
+    pub zone_id: String,
+    /// Single label, e.g. `mac` for `mac.example.com`.
+    pub subdomain: String,
+    #[serde(default = "default_local_host")]
+    pub local_host: String,
+    pub local_port: u16,
+    #[serde(default)]
+    pub auto_start: bool,
 }

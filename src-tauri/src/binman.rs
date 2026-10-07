@@ -69,6 +69,14 @@ pub fn binary_file_name(backend: Backend) -> &'static str {
                 "frpc"
             }
         }
+        // Named tunnels reuse the same cloudflared binary.
+        Backend::CloudflareNamed => {
+            if cfg!(target_os = "windows") {
+                "cloudflared.exe"
+            } else {
+                "cloudflared"
+            }
+        }
     }
 }
 
@@ -78,7 +86,7 @@ pub fn binary_file_name(backend: Backend) -> &'static str {
 /// `frpc.exe`, its unix tarballs contain `frpc` — hence the cfg! arm.
 fn archive_inner_name(backend: Backend) -> &'static str {
     match backend {
-        Backend::Cloudflare => "cloudflared",
+        Backend::Cloudflare | Backend::CloudflareNamed => "cloudflared",
         Backend::Bore => "bore",
         Backend::Frp => {
             if cfg!(target_os = "windows") {
@@ -286,7 +294,7 @@ async fn install_to_dir(dir: &Path, backend: Backend) -> Result<PathBuf, String>
     let arch = std::env::consts::ARCH;
 
     let (asset_name, url) = match backend {
-        Backend::Cloudflare => {
+        Backend::Cloudflare | Backend::CloudflareNamed => {
             let asset = cloudflared_asset_name(os, arch).ok_or_else(|| {
                 "cloudflared publishes no official build for this platform".to_string()
             })?;

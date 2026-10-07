@@ -3,7 +3,7 @@
 
 export type TunnelType = "http" | "tcp";
 
-export type Backend = "cloudflare" | "bore" | "frp";
+export type Backend = "cloudflare" | "bore" | "frp" | "cloudflareNamed";
 
 export type TunnelStatus =
   | "stopped"
@@ -36,6 +36,10 @@ export interface TunnelConfig {
   remotePort?: number | null;
   /** HTTP Basic Auth for this tunnel; password set via setTunnelAuth. */
   auth?: TunnelAuth | null;
+  /** CloudflareNamed only: the remote tunnel object id (UUID). */
+  cfTunnelId?: string | null;
+  /** CloudflareNamed only: full fixed hostname (`mac.example.com`). */
+  cfHostname?: string | null;
   /** Only allow these IPs/CIDRs; empty = allow all. */
   ipAllowlist?: string[];
 }
@@ -163,4 +167,31 @@ export interface TunnelStats {
   bytesIn: number;
   bytesOut: number;
   connActive: number;
+}
+
+// ---------------------------------------------------------------------------
+// Cloudflare Named Tunnel (v0.2.0)
+// ---------------------------------------------------------------------------
+
+export interface CfAccount {
+  id: string;
+  name: string;
+}
+
+export interface CfZone {
+  id: string;
+  name: string;
+  accountId: string;
+}
+
+/** Input for provisioning a fixed-hostname tunnel in one shot. */
+export interface CfProvisionInput {
+  /** Cloudflare API token (Tunnel:Edit + DNS:Edit + Zone:Read). */
+  token: string;
+  zoneId: string;
+  /** Single label, e.g. `mac` for `mac.example.com`. */
+  subdomain: string;
+  localHost: string;
+  localPort: number;
+  autoStart: boolean;
 }

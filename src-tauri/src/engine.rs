@@ -858,6 +858,8 @@ mod tests {
             remote_port: None,
             auth: None,
             ip_allowlist: Vec::new(),
+            cf_tunnel_id: None,
+            cf_hostname: None,
         }
     }
 

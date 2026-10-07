@@ -1,5 +1,6 @@
 mod binman;
 mod brand;
+mod cloudflare;
 mod commands;
 mod diagnostics;
 mod engine;
@@ -55,6 +56,10 @@ pub fn run() {
             commands::import_frpc_config,
             commands::diagnose_tunnel,
             commands::set_tunnel_auth,
+            commands::cf_verify_token,
+            commands::cf_list_zones,
+            commands::cf_provision,
+            commands::cf_deprovision,
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")

@@ -6,6 +6,9 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   Backend,
   BinaryStatus,
+  CfAccount,
+  CfProvisionInput,
+  CfZone,
   DeployProgressEvent,
   DeployResult,
   Diagnosis,
@@ -53,6 +56,18 @@ export const api = {
   diagnoseTunnel: (id: string) => invoke<Diagnosis>("diagnose_tunnel", { id }),
   setTunnelAuth: (id: string, password: string | null) =>
     invoke<void>("set_tunnel_auth", { id, password }),
+
+  // v0.2.0: Cloudflare Named Tunnel (fixed hostnames)
+  cfVerifyToken: (token: string) => invoke<CfAccount[]>("cf_verify_token", { token }),
+  cfListZones: (token: string) => invoke<CfZone[]>("cf_list_zones", { token }),
+  cfProvision: (input: CfProvisionInput) => invoke<TunnelConfig>("cf_provision", { input }),
+  cfDeprovision: (args: {
+    id: string;
+    token: string;
+    zoneId: string;
+    cfTunnelId: string;
+    deleteDns: boolean;
+  }) => invoke<void>("cf_deprovision", { ...args }),
 };
 
 export function onTunnelState(

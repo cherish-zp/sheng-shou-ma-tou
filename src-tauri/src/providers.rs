@@ -83,6 +83,14 @@ pub fn build_args(cfg: &TunnelConfig) -> Vec<String> {
         // async config preparation, so this pure builder stays empty and the
         // engine routes Frp through the dedicated function).
         Backend::Frp => vec![],
+        // Named tunnels run via `tunnel run`; the tunnel token reaches
+        // cloudflared through the TUNNEL_TOKEN env var (set by the engine
+        // from the keychain — never a CLI argument).
+        Backend::CloudflareNamed => vec![
+            "tunnel".to_string(),
+            "--no-autoupdate".to_string(),
+            "run".to_string(),
+        ],
     }
 }
 
@@ -286,6 +294,9 @@ pub fn parse_public_endpoint(backend: Backend, line: &str) -> Option<String> {
         Backend::Bore => extract_bore_endpoint(line)
             .or_else(|| extract_remote_port(line).map(|p| format!("{BORE_DEFAULT_SERVER}:{p}"))),
         Backend::Frp => None,
+        // Named-tunnel URLs are fixed at provision time (cf_hostname) — the
+        // engine binds them the same way as the frp precomputed path.
+        Backend::CloudflareNamed => None,
     }
 }
 
@@ -511,6 +522,11 @@ pub fn is_error_line(backend: Backend, line: &str) -> bool {
         Backend::Cloudflare => CLOUDFLARE_ERROR_MARKERS.iter().any(|m| lower.contains(m)),
         Backend::Bore => BORE_ERROR_MARKERS.iter().any(|m| lower.contains(m)),
         Backend::Frp => FRP_ERROR_MARKERS.iter().any(|m| lower.contains(m)),
+        Backend::CloudflareNamed => {
+            lower.contains("err")
+                || lower.contains("failed")
+                || lower.contains("unable to reach the origin service")
+        }
     }
 }
 
@@ -577,6 +593,8 @@ mod tests {
             remote_port: None,
             auth: None,
             ip_allowlist: Vec::new(),
+            cf_tunnel_id: None,
+            cf_hostname: None,
         }
     }
 
@@ -806,6 +824,8 @@ mod tests {
             remote_port: None,
             auth: None,
             ip_allowlist: Vec::new(),
+            cf_tunnel_id: None,
+            cf_hostname: None,
         }
     }
 

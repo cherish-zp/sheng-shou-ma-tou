@@ -400,3 +400,62 @@ pub fn set_tunnel_auth(app: AppHandle, id: String, password: Option<String>) -> 
         _ => crate::servers_store::delete_tunnel_auth_password(&app, &id),
     }
 }
+
+// ---------------------------------------------------------------------------
+// Cloudflare Named Tunnel (v0.2.0) — fixed hostnames
+// ---------------------------------------------------------------------------
+
+use crate::models::{CfAccount, CfProvisionInput, CfZone};
+
+#[tauri::command]
+pub fn cf_verify_token(token: String) -> Result<Vec<CfAccount>, String> {
+    crate::cloudflare::verify_token(&token)
+}
+
+#[tauri::command]
+pub fn cf_list_zones(token: String) -> Result<Vec<CfZone>, String> {
+    crate::cloudflare::list_zones(&token)
+}
+
+/// Provision a fixed-hostname tunnel end-to-end and store it. The API token
+/// and the tunnel-run token both go to the OS keychain, never into
+/// tunnels.json.
+#[tauri::command]
+pub fn cf_provision(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    input: CfProvisionInput,
+) -> Result<TunnelConfig, String> {
+    if input.subdomain.trim().is_empty() {
+        return Err("subdomain is required".into());
+    }
+    let cfg = crate::cloudflare::provision(&input)?;
+    let run_token = crate::cloudflare::get_tunnel_run_token(&cfg.id)?;
+    // API token reuse of the keyring account slot: `cf-{tunnel_id}` keeps
+    // Cloudflare credentials grouped apart from SSH secrets.
+    crate::servers_store::set_frps_token(&app, &format!("cf-{}", cfg.id), &input.token)?;
+    crate::cloudflare::set_tunnel_run_token(&cfg.id, &run_token)?;
+    state.store.add(cfg.clone())?;
+    Ok(cfg)
+}
+
+/// Tear down the remote tunnel (and optionally its DNS record) and remove
+/// the local tunnel config.
+#[tauri::command]
+pub fn cf_deprovision(
+    state: State<'_, AppState>,
+    id: String,
+    token: String,
+    zone_id: String,
+    cf_tunnel_id: String,
+    delete_dns: bool,
+) -> Result<(), String> {
+    crate::cloudflare::deprovision(&token, &zone_id, &cf_tunnel_id, delete_dns)?;
+    let _ = crate::servers_store::set_frps_token(
+        &state.app,
+        &format!("cf-{id}"),
+        "",
+    );
+    state.store.remove(&id)?;
+    Ok(())
+}
