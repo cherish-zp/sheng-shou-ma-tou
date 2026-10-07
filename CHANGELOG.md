@@ -12,6 +12,9 @@
 - Bundle identifier 变更为 `com.cherish.shengshoumatou`，启动时自动迁移旧 `com.masterfulhands.pier` 数据目录（隧道/服务器配置与引擎二进制；钥匙串凭据不受影响）
 - 品牌集中管理：Rust `brand.rs` 与前端 `brand.ts` 单一事实来源，中英文界面显示名分离（zh: 圣手码头 / en: Pier）
 - 仓库迁移至 `cherish-zp/sheng-shou-ma-tou`（GitHub）与 `princess-zp/sheng-shou-ma-tou`（Gitee）
+- macOS 构建链路保留中文 productName（.app/dmg 中文名正确），CI 发布后自动
+  PATCH 修复上传环节剥字的附件名；Windows/Linux 构建经 `--config` 覆盖为
+  ASCII productName（rpm 规范化/NSIS 对非 ASCII 文件名不可靠）
 
 ### Fixed
 - 注册 single-instance 插件：杜绝双开（双托盘图标），第二实例启动即退出并置前已有窗口
