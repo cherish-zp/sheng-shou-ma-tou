@@ -246,17 +246,11 @@ export function TunnelCard({ tunnel, state, onEdit, onShowLogs, onDelete }: Tunn
                   <Ellipsis className="size-4" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-40">
+              <DropdownMenuContent align="end" className="w-48">
                 <DropdownMenuItem onSelect={() => onEdit(tunnel)}>
                   <Pencil />
                   {t("card.editTunnel")}
                 </DropdownMenuItem>
-                {isCfNamed && (
-                  <DropdownMenuItem onSelect={() => setCfCleanupOpen(true)}>
-                    <CloudOff />
-                    {t("card.cleanupCfNamed")}
-                  </DropdownMenuItem>
-                )}
                 {isCfNamed && (
                   <DropdownMenuItem onSelect={() => setCfCleanupOpen(true)}>
                     <CloudOff />
