@@ -78,41 +78,24 @@ where
 }
 
 // ---------------------------------------------------------------------------
-// Keychain storage (same service/account conventions as servers_store)
+// Secret storage (v0.2.0: local SQLite via secrets_store — see that module
+// for why the macOS keychain was replaced). Account strings are unchanged.
 // ---------------------------------------------------------------------------
 
-/// OS keychain service name shared by every 圣手码头 secret. MUST stay in
-/// sync with servers_store::KEYRING_SERVICE.
-const KEYRING_SERVICE: &str = "com.masterfulhands.pier";
 const RUN_TOKEN_PREFIX: &str = "cf-tunnel-token-";
-/// API token account: `cf-{tunnel_id}` — the slot commands::cf_provision
-/// writes to via servers_store::set_frps_token (keyring account reuse).
+/// API token account: `cf-{tunnel_id}`.
 const API_TOKEN_PREFIX: &str = "cf-";
 
-fn open_entry(account: &str) -> Result<keyring::Entry, String> {
-    keyring::Entry::new(KEYRING_SERVICE, account)
-        .map_err(|e| format!("无法访问系统钥匙串（{KEYRING_SERVICE}/{account}）：{e}"))
-}
-
 fn keychain_set(account: &str, secret: &str) -> Result<(), String> {
-    open_entry(account)?
-        .set_password(secret)
-        .map_err(|e| format!("写入钥匙串失败（{account}）：{e}"))
+    crate::secrets_store::set(account, secret)
 }
 
 fn keychain_delete(account: &str) -> Result<(), String> {
-    open_entry(account)?
-        .delete_credential()
-        .map_err(|e| format!("删除钥匙串失败（{account}）：{e}"))
+    crate::secrets_store::delete(account)
 }
 
 fn keychain_get(account: &str) -> Result<String, String> {
-    open_entry(account)?.get_password().map_err(|e| match e {
-        keyring::Error::NoEntry => {
-            format!("钥匙串中未保存 {account} 对应的秘密（尚未设置或已被删除）")
-        }
-        other => format!("读取钥匙串失败（{account}）：{other}"),
-    })
+    crate::secrets_store::get(account)
 }
 
 fn run_token_account(tunnel_id: &str) -> String {
@@ -375,6 +358,21 @@ pub fn get_tunnel_run_token(tunnel_id: &str) -> Result<String, String> {
 /// Fetch the account-scoped API token stored by `commands::cf_provision`
 /// under keychain `cf-{tunnel_id}` (the engine needs it to retarget the
 /// remote ingress before every start attempt).
+/// Fetch the API token if present (migration/inspection paths).
+pub fn try_api_token(tunnel_id: &str) -> Result<Option<String>, String> {
+    crate::secrets_store::try_get(&api_token_account(tunnel_id))
+}
+
+/// Fetch the API token from the legacy (mis-slotted) frp keyring account.
+pub fn try_legacy_api_token(tunnel_id: &str) -> Result<Option<String>, String> {
+    crate::secrets_store::try_get(&format!("frps-token-cf-{tunnel_id}"))
+}
+
+/// Fetch the tunnel-run token if present.
+pub fn try_tunnel_run_token(tunnel_id: &str) -> Result<Option<String>, String> {
+    crate::secrets_store::try_get(&format!("{RUN_TOKEN_PREFIX}{tunnel_id}"))
+}
+
 pub fn get_api_token(tunnel_id: &str) -> Result<String, String> {
     match keychain_get(&api_token_account(tunnel_id)) {
         Ok(v) => Ok(v),
@@ -420,6 +418,95 @@ pub fn deprovision(
     run_blocking("cf-deprovision", async move {
         deprovision_async(&token, &zone_id, &tunnel_id, delete_dns).await
     })
+}
+
+/// Change a provisioned tunnel's fixed hostname to
+/// `{subdomain}.{zone_name}`:
+///   1. PUT configurations with the existing ingress rules but the first
+///      hostname rule rewritten (port untouched),
+///   2. upsert the new CNAME (conflict-reuse semantics),
+///   3. delete the old CNAME (only when it pointed at this tunnel).
+///
+/// Returns the new full hostname. The tunnel object (and its run token)
+/// stays the same, so `cloudflared` keeps running across the change.
+pub fn update_hostname(
+    token: &str,
+    account_id: &str,
+    tunnel_id: &str,
+    zone_id: &str,
+    old_hostname: &str,
+    subdomain: &str,
+) -> Result<String, String> {
+    let token = token.trim().to_string();
+    let account_id = account_id.trim().to_string();
+    let tunnel_id = tunnel_id.trim().to_string();
+    let zone_id = zone_id.trim().to_string();
+    let subdomain = subdomain.trim().to_lowercase();
+    let old_hostname = old_hostname.trim().to_string();
+    run_blocking("cf-update-hostname", async move {
+        // zone name for the new hostname
+        let zone = cf_request(
+            reqwest::Method::GET,
+            &token,
+            &format!("/zones/{zone_id}"),
+            None,
+        )
+        .await
+        .map_err(|e| format!("读取域名信息失败：{e}"))?;
+        let zone_name = zone
+            .result
+            .get("name")
+            .and_then(|v| v.as_str())
+            .ok_or("域名响应缺少 name 字段")?
+            .to_string();
+        let new_hostname = format!("{subdomain}.{zone_name}");
+
+        // 1) rewrite the first hostname rule in the remote ingress
+        let path = format!("/accounts/{account_id}/cfd_tunnel/{tunnel_id}/configurations");
+        let envelope = cf_request(reqwest::Method::GET, &token, &path, None)
+            .await
+            .map_err(|e| format!("读取远程 ingress 配置失败：{e}"))?;
+        let config = envelope
+            .result
+            .get("config")
+            .cloned()
+            .unwrap_or_else(|| envelope.result.clone());
+        let updated = apply_ingress_hostname(&config, &new_hostname)?;
+        let body = serde_json::json!({ "config": updated });
+        cf_request(reqwest::Method::PUT, &token, &path, Some(body))
+            .await
+            .map_err(|e| format!("写回远程 ingress 配置失败：{e}"))?;
+
+        // 2) new CNAME (reuse on conflict), 3) drop the old one
+        create_cname(&token, &zone_id, &new_hostname, &tunnel_id).await?;
+        delete_cname(&token, &zone_id, &old_hostname, &tunnel_id).await?;
+
+        Ok(new_hostname)
+    })
+}
+
+/// Resolve the account that owns `zone_id`.
+pub fn zone_account(token: &str, zone_id: &str) -> String {
+    let token = token.trim().to_string();
+    let zone_id = zone_id.trim().to_string();
+    run_blocking("cf-zone-account", async move {
+        let account = match cf_request(reqwest::Method::GET, &token, &format!("/zones/{zone_id}"), None).await {
+            Ok(envelope) => envelope
+                .result
+                .pointer("/account/id")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            Err(_) => String::new(),
+        };
+        Ok(account)
+    })
+    .unwrap_or_default()
+}
+
+/// Read the stored API token for a tunnel (frontend "eye" reveal).
+pub fn stored_api_token(tunnel_id: &str) -> Result<String, String> {
+    keychain_get(&api_token_account(tunnel_id))
 }
 
 /// Query remote tunnel health ("inactive" | "degraded" | "healthy" | "down").
@@ -598,6 +685,40 @@ async fn provision_async(input: &CfProvisionInput) -> Result<TunnelConfig, Strin
 /// existing record(s); if one already points at this tunnel, PATCH it into
 /// shape (idempotent reuse); otherwise the subdomain is occupied by another
 /// record and provisioning fails with a clear message.
+/// Delete the CNAME record(s) named `name` that still point at `tunnel_id`
+/// (content check prevents removing someone else's record).
+async fn delete_cname(
+    token: &str,
+    zone_id: &str,
+    name: &str,
+    tunnel_id: &str,
+) -> Result<(), String> {
+    let envelope = cf_request(
+        reqwest::Method::GET,
+        token,
+        &format!("/zones/{zone_id}/dns_records?type=CNAME&name={name}&per_page=50"),
+        None,
+    )
+    .await
+    .map_err(|e| format!("查询旧 DNS 记录失败：{e}"))?;
+    let records = parse_vec::<serde_json::Value>(&envelope.result, "DNS 记录列表")?;
+    for record in records {
+        let points_at_us = record
+            .get("content")
+            .and_then(|c| c.as_str())
+            .map(|c| c.contains(&format!("{tunnel_id}.cfargotunnel.com")))
+            .unwrap_or(false);
+        if let Some(id) = record.get("id").and_then(|v| v.as_str()) {
+            if points_at_us {
+                cf_request(reqwest::Method::DELETE, token, &format!("/zones/{zone_id}/dns_records/{id}"), None)
+                    .await
+                    .map_err(|e| format!("删除旧 DNS 记录失败：{e}"))?;
+            }
+        }
+    }
+    Ok(())
+}
+
 async fn create_cname(
     token: &str,
     zone_id: &str,
@@ -998,6 +1119,30 @@ fn apply_ingress_port(config: &serde_json::Value, port: u16) -> Result<serde_jso
     Err("远程 ingress 配置中没有找到带 hostname 的转发规则（可能已在 Cloudflare 控制台被删除）；请在应用内删除该隧道后重新绑定".into())
 }
 
+/// Rewrite the first hostname rule's `hostname` in a remote ingress config
+/// (service/port untouched). Mirrors `apply_ingress_port`.
+fn apply_ingress_hostname(
+    config: &serde_json::Value,
+    new_hostname: &str,
+) -> Result<serde_json::Value, String> {
+    let mut updated = config.clone();
+    let ingress = updated
+        .get_mut("ingress")
+        .and_then(|v| v.as_array_mut())
+        .ok_or_else(|| "远程 ingress 配置缺少 ingress 数组（配置可能已在 Cloudflare 控制台被改坏）".to_string())?;
+    for rule in ingress.iter_mut() {
+        let has_hostname = rule
+            .get("hostname")
+            .map(|h| !h.is_null())
+            .unwrap_or(false);
+        if has_hostname {
+            rule["hostname"] = serde_json::json!(new_hostname);
+            return Ok(updated);
+        }
+    }
+    Err("远程 ingress 配置中没有找到带 hostname 的转发规则（可能已在 Cloudflare 控制台被删除）；请在应用内删除该隧道后重新绑定".into())
+}
+
 /// Deserialize an envelope result expected to be an array of objects.
 fn parse_vec<T: for<'de> Deserialize<'de>>(
     value: &serde_json::Value,
@@ -1273,7 +1418,6 @@ mod tests {
         // get_api_token — both sides must agree on the slot names.
         assert_eq!(run_token_account("t1"), "cf-tunnel-token-t1");
         assert_eq!(api_token_account("t1"), "cf-t1");
-        assert_eq!(KEYRING_SERVICE, "com.masterfulhands.pier");
     }
 
     #[test]

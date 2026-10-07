@@ -43,6 +43,74 @@ fn data_dir(app: &AppHandle) -> PathBuf {
     })
 }
 
+
+/// One-time migration: copy every keychain secret we can address from the
+/// local config files (tunnels + servers) into the SQLite secret store.
+/// Reading the keychain may show ONE final authorization prompt; after this
+/// the app never touches the keychain again.
+fn migrate_keychain_secrets(app: &AppHandle) {
+    use crate::servers_store as ss;
+
+    let mut migrated = 0usize;
+    // SSH secrets + frps tokens per server
+    for srv in ss::load_servers(app) {
+        for (account, value) in [
+            (
+                ss::ssh_secret_account(&srv.id),
+                ss::try_ssh_secret(&srv.id),
+            ),
+            (
+                ss::frps_token_account(&srv.id),
+                ss::try_frps_token(&srv.id),
+            ),
+        ] {
+            if let Ok(Some(v)) = value {
+                if crate::secrets_store::try_get(&account).ok().flatten().is_none() {
+                    let _ = crate::secrets_store::set(&account, &v);
+                    migrated += 1;
+                }
+            }
+        }
+    }
+    // Tunnel auth passwords + frps-token-cf / cf run+api tokens per tunnel
+    let tunnels_path = data_dir(app).join("tunnels.json");
+    if let Ok(text) = std::fs::read_to_string(&tunnels_path) {
+        if let Ok(configs) = serde_json::from_str::<Vec<crate::models::TunnelConfig>>(&text) {
+            for cfg in configs {
+                let entries: Vec<(String, Result<Option<String>, String>)> = vec![
+                    (
+                        format!("tunnel-auth-{}", cfg.id),
+                        ss::get_tunnel_auth_password(app, &cfg.id),
+                    ),
+                    (
+                        format!("cf-{}", cfg.id),
+                        crate::cloudflare::try_api_token(&cfg.id),
+                    ),
+                    (
+                        format!("cf-tunnel-token-{}", cfg.id),
+                        crate::cloudflare::try_tunnel_run_token(&cfg.id),
+                    ),
+                    (
+                        format!("frps-token-cf-{}", cfg.id),
+                        crate::cloudflare::try_legacy_api_token(&cfg.id),
+                    ),
+                ];
+                for (account, read) in entries {
+                    if let Ok(Some(v)) = read {
+                        if crate::secrets_store::try_get(&account).ok().flatten().is_none() {
+                            let _ = crate::secrets_store::set(&account, &v);
+                            migrated += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if migrated > 0 {
+        eprintln!("[pier] 已将 {migrated} 条钥匙串秘密迁移到本地秘密库");
+    }
+}
+
 /// Called from `lib.rs` on `RunEvent::Exit`: stop every running tunnel process
 /// so the app never leaks child processes.
 pub fn shutdown(app: &AppHandle) {
@@ -116,6 +184,11 @@ fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result
 /// auto-start for tunnels flagged `auto_start` (async, non-blocking).
 pub fn init_runtime(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     migrate_legacy_data_dir(app);
+    // v0.2.0: secrets live in local SQLite now — pull any pre-existing
+    // keychain entries over once (may prompt once for keychain access),
+    // then the app never touches the keychain again.
+    crate::secrets_store::init(app);
+    migrate_keychain_secrets(app);
     std::fs::create_dir_all(data_dir(app))?;
 
     let state = AppState::new(app.clone());
@@ -434,6 +507,70 @@ pub fn cf_provision(
     crate::cloudflare::set_tunnel_run_token(&cfg.id, &run_token)?;
     state.store.add(cfg.clone())?;
     Ok(cfg)
+}
+
+/// Change a named tunnel's fixed hostname. Uses the stored API token; the
+/// remote ingress + CNAME are re-pointed and the local config updated.
+#[tauri::command]
+pub fn cf_update_hostname(
+    state: State<'_, AppState>,
+    id: String,
+    zone_id: String,
+    subdomain: String,
+) -> Result<TunnelConfig, String> {
+    let subdomain = subdomain.trim().to_lowercase();
+    if subdomain.is_empty() {
+        return Err("subdomain is required".into());
+    }
+    let mut cfg = state
+        .store
+        .load()
+        .into_iter()
+        .find(|c| c.id == id)
+        .ok_or("tunnel not found")?;
+    let old_hostname = cfg
+        .cf_hostname
+        .clone()
+        .ok_or("tunnel is not a Cloudflare fixed-hostname tunnel")?;
+    let account_id = cfg
+        .cf_account_id
+        .clone()
+        .ok_or("tunnel is not a Cloudflare fixed-hostname tunnel")?;
+    let cf_tunnel_id = cfg
+        .cf_tunnel_id
+        .clone()
+        .ok_or("tunnel is not a Cloudflare fixed-hostname tunnel")?;
+    let token = crate::cloudflare::stored_api_token(&id)?;
+
+    let new_hostname = crate::cloudflare::update_hostname(
+        &token,
+        &account_id,
+        &cf_tunnel_id,
+        &zone_id,
+        &old_hostname,
+        &subdomain,
+    )?;
+    cfg.cf_hostname = Some(new_hostname.clone());
+    cfg.name = subdomain;
+    cfg.cf_account_id = Some({
+        // zone may live under a different account than before — re-resolve
+        crate::cloudflare::zone_account(&token, &zone_id)
+    });
+    state.store.update(cfg.clone())?;
+    Ok(cfg)
+}
+
+/// Stored API token for a tunnel (frontend eye-reveal).
+#[tauri::command]
+pub fn cf_get_api_token(id: String) -> Result<String, String> {
+    crate::cloudflare::stored_api_token(&id)
+}
+
+/// Zones visible to a STORED tunnel's API token (edit-mode dropdown).
+#[tauri::command]
+pub fn cf_list_zones_stored(id: String) -> Result<Vec<crate::models::CfZone>, String> {
+    let token = crate::cloudflare::stored_api_token(&id)?;
+    crate::cloudflare::list_zones(&token)
 }
 
 /// Tear down the remote tunnel (and optionally its DNS record) and remove

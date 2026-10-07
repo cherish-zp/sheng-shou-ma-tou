@@ -14,6 +14,8 @@ use tauri::Manager;
 use crate::models::ServerConfig;
 
 /// OS keychain service name shared by every Pier secret.
+/// v0.2.0 前的钥匙串 service 名——迁移逻辑用它寻址旧条目。
+#[allow(dead_code)]
 const KEYRING_SERVICE: &str = "com.masterfulhands.pier";
 const SSH_SECRET_PREFIX: &str = "ssh-secret-";
 const FRPS_TOKEN_PREFIX: &str = "frps-token-";
@@ -131,42 +133,26 @@ pub fn remove_server(app: &tauri::AppHandle, id: &str) -> Result<bool, String> {
 // Keychain storage (keyring crate)
 // ---------------------------------------------------------------------------
 
-fn open_entry(account: &str) -> Result<keyring::Entry, String> {
-    keyring::Entry::new(KEYRING_SERVICE, account)
-        .map_err(|e| format!("无法访问系统钥匙串（{KEYRING_SERVICE}/{account}）：{e}"))
-}
-
+// v0.2.0 起秘密统一存本地 SQLite（secrets_store）；这些函数保留原签名，
+// 上层（SSH 密码 / frps token / 隧道鉴权密码）无感切换。旧钥匙串条目由
+// commands::init_runtime 的迁移一次性搬入。
 fn get_keyring_secret(account: &str) -> Result<String, String> {
-    let entry = open_entry(account)?;
-    entry.get_password().map_err(|e| match e {
-        keyring::Error::NoEntry => {
-            format!("钥匙串中未保存 {account} 对应的秘密（尚未设置或已被删除）")
-        }
-        other => format!("读取钥匙串失败（{account}）：{other}"),
-    })
+    crate::secrets_store::get(account)
 }
 
 fn set_keyring_secret(account: &str, secret: &str) -> Result<(), String> {
-    let entry = open_entry(account)?;
-    entry
-        .set_password(secret)
-        .map_err(|e| format!("写入钥匙串失败（{account}）：{e}"))
+    crate::secrets_store::set(account, secret)
 }
 
 fn delete_keyring_secret(account: &str) -> Result<(), String> {
-    let entry = open_entry(account)?;
-    match entry.delete_credential() {
-        Ok(()) => Ok(()),
-        Err(keyring::Error::NoEntry) => Ok(()),
-        Err(e) => Err(format!("删除钥匙串条目失败（{account}）：{e}")),
-    }
+    crate::secrets_store::delete(account)
 }
 
-fn ssh_secret_account(server_id: &str) -> String {
+pub fn ssh_secret_account(server_id: &str) -> String {
     format!("{SSH_SECRET_PREFIX}{server_id}")
 }
 
-fn frps_token_account(server_id: &str) -> String {
+pub fn frps_token_account(server_id: &str) -> String {
     format!("{FRPS_TOKEN_PREFIX}{server_id}")
 }
 
@@ -209,12 +195,12 @@ pub fn get_frps_token(app: &tauri::AppHandle, server_id: &str) -> Result<String,
 /// Fetch the frps token if present, `Ok(None)` when never stored. Used by the
 /// deploy upgrade path, which must keep the existing token when re-deploying.
 pub fn try_frps_token(server_id: &str) -> Result<Option<String>, String> {
-    let entry = open_entry(&frps_token_account(server_id))?;
-    match entry.get_password() {
-        Ok(token) => Ok(Some(token)),
-        Err(keyring::Error::NoEntry) => Ok(None),
-        Err(e) => Err(format!("读取钥匙串失败：{e}")),
-    }
+    crate::secrets_store::try_get(&frps_token_account(server_id))
+}
+
+/// Fetch the SSH secret if present.
+pub fn try_ssh_secret(server_id: &str) -> Result<Option<String>, String> {
+    crate::secrets_store::try_get(&ssh_secret_account(server_id))
 }
 
 // ---------------------------------------------------------------------------
@@ -242,12 +228,7 @@ pub fn get_tunnel_auth_password(
     tunnel_id: &str,
 ) -> Result<Option<String>, String> {
     let _ = app;
-    let entry = open_entry(&tunnel_auth_account(tunnel_id))?;
-    match entry.get_password() {
-        Ok(password) => Ok(Some(password)),
-        Err(keyring::Error::NoEntry) => Ok(None),
-        Err(e) => Err(format!("读取钥匙串失败：{e}")),
-    }
+    crate::secrets_store::try_get(&tunnel_auth_account(tunnel_id))
 }
 
 /// Delete the basic-auth password when a tunnel's auth is removed.

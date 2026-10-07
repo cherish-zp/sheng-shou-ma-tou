@@ -9,6 +9,7 @@ mod frp_deploy;
 mod frp_import;
 mod models;
 mod providers;
+mod secrets_store;
 mod servers_store;
 mod ssh;
 mod store;
@@ -60,6 +61,9 @@ pub fn run() {
             commands::cf_list_zones,
             commands::cf_provision,
             commands::cf_deprovision,
+            commands::cf_update_hostname,
+            commands::cf_get_api_token,
+            commands::cf_list_zones_stored,
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
