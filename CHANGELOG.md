@@ -5,6 +5,26 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本 2.0.0](https://semver.org/lang/zh-CN/)。
 
+## [0.2.0] - 2026-10-07
+
+### Added
+- **Cloudflare 固定域名（Named Tunnel）**：粘贴 API Token 三步绑定，子域名永久固定；
+  支持编辑时修改域名/子域（自动换绑路由与 DNS）、一键清理云端资源（隧道 + DNS）、
+  API Token 小眼睛查看；每条隧道独立 Token
+- 帮助中心（侧栏 ？）：固定域名图文指南、Token 权限清单、常见问题
+
+### Changed
+- 秘密存储由 macOS 钥匙串迁移至本地 SQLite（`secrets.db`）——未签名应用每次
+  重建都会触发钥匙串授权弹窗，已彻底告别；启动时自动迁移旧数据
+- 隧道启停开关选中态改为绿色（运行态视觉）
+
+### Fixed
+- Named tunnel 强制 `--protocol http2`（QUIC 被拦网络下永久卡"等待分配公网地址"）
+- 更新远端 ingress 的 PUT body 补 `config` 包裹（Cloudflare 1030 错误）
+- 钥匙串 → SQLite 迁移改为直读钥匙串（此前搬了 0 条，启动读不到 Token）
+- 侧边栏导航高亮互斥（Tooltip asChild 吞掉函数 className 的经典坑）
+- 双实例/双托盘图标（single-instance 插件注册）
+
 ## [0.1.1] - 2026-10-07
 
 ### Changed

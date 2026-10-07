@@ -54,3 +54,18 @@ GitHub Release 自动发布 → sync-gitee 同步附件（需 GITEE_TOKEN，未�
 - 提交遵循 Conventional Commits、中文描述。
 - 双实例排查：确认系统里只有一个应用进程时，
   `ps aux | grep -iE "[p]ier|[S]hengShou"`（注意 dev 二进制名叫 `pier`）。
+
+## 7. 本次 v0.2.0 复盘：四条禁止再犯的低级错误
+
+1. **禁止用 `strings | grep` 验证 tauri 二进制的前端内容**——tauri 默认压缩嵌入
+   assets，任何前端字符串都搜不到（曾据此连续两次误判包的新旧）。
+   唯一可靠验证：① 构建前后 `md5 -q <二进制>` 对比；② dist 特征 grep +
+   cargo clean 后重建；③ 实际运行验证。
+2. **打包必须 `cargo clean -p pier`**——cargo 增量编译不感知 dist 变化，
+   `generate_context!` 宏会嵌旧前端（touch 源文件也不可靠）。
+3. **脚本批量改代码后必须回读文件验证**——python replace 不匹配会静默跳过，
+   曾导致"计算端哨兵"被覆盖丢失，渲染端等一个永远不会出现的标记
+   （用户反复看到旧文案的真凶之一）。多脚本顺序修改同一文件时尤其致命。
+4. **验证前先杀干净进程**——macOS 关窗口≠退出应用；dev 二进制名叫 `pier`
+   （`pkill -f ShengShouMaTou` 匹配不到它）。用户"看到旧界面"最常见的
+   真相是内存里的旧实例从未退出。验证用：`pgrep -fl "pier|ShengShouMaTou"`。
