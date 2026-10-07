@@ -59,9 +59,7 @@ fn migrate_keychain_secrets(app: &AppHandle) {
         match entry.get_password() {
             Ok(v) => Some(v),
             Err(keyring::Error::NoEntry) => None,
-            Err(e) => {
-                None
-            }
+            Err(_) => None,
         }
     }
 

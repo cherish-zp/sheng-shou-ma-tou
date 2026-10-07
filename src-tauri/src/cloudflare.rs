@@ -355,24 +355,6 @@ pub fn get_tunnel_run_token(tunnel_id: &str) -> Result<String, String> {
     keychain_get(&run_token_account(tunnel_id))
 }
 
-/// Fetch the account-scoped API token stored by `commands::cf_provision`
-/// under keychain `cf-{tunnel_id}` (the engine needs it to retarget the
-/// remote ingress before every start attempt).
-/// Fetch the API token if present (migration/inspection paths).
-pub fn try_api_token(tunnel_id: &str) -> Result<Option<String>, String> {
-    crate::secrets_store::try_get(&api_token_account(tunnel_id))
-}
-
-/// Fetch the API token from the legacy (mis-slotted) frp keyring account.
-pub fn try_legacy_api_token(tunnel_id: &str) -> Result<Option<String>, String> {
-    crate::secrets_store::try_get(&format!("frps-token-cf-{tunnel_id}"))
-}
-
-/// Fetch the tunnel-run token if present.
-pub fn try_tunnel_run_token(tunnel_id: &str) -> Result<Option<String>, String> {
-    crate::secrets_store::try_get(&format!("{RUN_TOKEN_PREFIX}{tunnel_id}"))
-}
-
 pub fn get_api_token(tunnel_id: &str) -> Result<String, String> {
     match keychain_get(&api_token_account(tunnel_id)) {
         Ok(v) => Ok(v),

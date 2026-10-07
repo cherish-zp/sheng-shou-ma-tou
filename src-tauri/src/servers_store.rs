@@ -198,10 +198,6 @@ pub fn try_frps_token(server_id: &str) -> Result<Option<String>, String> {
     crate::secrets_store::try_get(&frps_token_account(server_id))
 }
 
-/// Fetch the SSH secret if present.
-pub fn try_ssh_secret(server_id: &str) -> Result<Option<String>, String> {
-    crate::secrets_store::try_get(&ssh_secret_account(server_id))
-}
 
 // ---------------------------------------------------------------------------
 // Tunnel basic-auth passwords (M3) — same keychain pattern as above.
