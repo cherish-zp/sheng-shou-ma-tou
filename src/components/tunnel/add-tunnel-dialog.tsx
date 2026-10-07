@@ -34,6 +34,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn, copyText, errorMessage, randomId, randomPassword } from "@/lib/utils";
 import { api } from "@/lib/tauri";
 import { mergeState, upsertConfig } from "@/store/tunnel-store";
+import { CfBindFlow } from "@/components/tunnel/cf-bind-flow";
 import type {
   ServerConfig,
   TunnelAuth,
@@ -76,6 +77,25 @@ const CHANNEL_OPTIONS = [
 ] as const;
 
 type Channel = (typeof CHANNEL_OPTIONS)[number]["value"];
+
+/**
+ * Cloudflare quick-channel tiers (HTTP only): temporary trycloudflare URLs
+ * (default, zero setup) vs a permanent fixed hostname via a bind flow.
+ */
+const CF_TIER_OPTIONS = [
+  {
+    value: "temporary",
+    titleKey: "add.hostnameTemporary",
+    descKey: "add.hostnameTemporaryHint",
+  },
+  {
+    value: "fixed",
+    titleKey: "add.hostnameFixed",
+    descKey: "add.hostnameFixedHint",
+  },
+] as const;
+
+type CfTier = (typeof CF_TIER_OPTIONS)[number]["value"];
 
 function parsePort(value: string): number | null {
   if (!/^\d+$/.test(value.trim())) return null;
@@ -129,6 +149,9 @@ export function AddTunnelDialog({
   const [remotePort, setRemotePort] = useState("");
   const [remotePortError, setRemotePortError] = useState(false);
 
+  // v0.2.0: Cloudflare quick-channel tier (HTTP only) — temporary by default.
+  const [cfTier, setCfTier] = useState<CfTier>("temporary");
+
   // M3: advanced options — Basic Auth + IP allowlist.
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [authEnabled, setAuthEnabled] = useState(false);
@@ -144,6 +167,7 @@ export function AddTunnelDialog({
     setPortError(false);
     setServers([]);
     setChannel("quick");
+    setCfTier("temporary");
     setServerId("");
     setSubdomain("");
     setRemotePort("");
@@ -191,6 +215,14 @@ export function AddTunnelDialog({
   const useFrp = !isEdit && channel === "selfhosted" && servers.length > 0;
   const parsedRemotePort = parsePort(remotePort);
 
+  // v0.2.0: fixed-hostname tier (Cloudflare named tunnel) — HTTP, quick
+  // channel, create mode only. TCP never sees the tier (backend limitation).
+  const useCfNamed =
+    !isEdit && tunnelType === "http" && !useFrp && cfTier === "fixed";
+  const showCfTierPicker = !isEdit && !useFrp && tunnelType === "http";
+  const showTcpCfHint = !isEdit && !useFrp && tunnelType === "tcp";
+  const localTargetReady = portValid && hostValid;
+
   const authAvailable = tunnelType === "http";
   const authActive = authEnabled && authAvailable;
   const parsedAllowlist = parseAllowlist(allowlistText);
@@ -206,6 +238,12 @@ export function AddTunnelDialog({
     if (next === "selfhosted" && !serverId && servers.length === 1) {
       setServerId(servers[0].id);
     }
+  }
+
+  /** The bind flow finished: tunnel provisioned + started — close the wizard. */
+  function handleProvisioned(tunnel: TunnelConfig) {
+    toast.success(t("add.cf.success", { name: tunnel.name }));
+    onOpenChange(false);
   }
 
   function toggleAuthEnabled(on: boolean) {
@@ -346,9 +384,11 @@ export function AddTunnelDialog({
       ? t("add.backendMappingFrp", {
           name: selectedServer?.name || selectedServer?.host || "",
         })
-      : tunnelType === "http"
-        ? t("add.backendMappingHttp")
-        : t("add.backendMappingTcp");
+      : useCfNamed
+        ? t("add.backendMappingCfNamed")
+        : tunnelType === "http"
+          ? t("add.backendMappingHttp")
+          : t("add.backendMappingTcp");
 
   const showChannelPicker = !isEdit && servers.length > 0;
   const advancedActive = authActive || parsedAllowlist.length > 0;
@@ -418,6 +458,40 @@ export function AddTunnelDialog({
               </div>
             ) : null}
 
+            {/* Cloudflare hostname tier: temporary (default) vs fixed (bind flow).
+                TCP never shows the tier — fixed hostnames are HTTP-only. */}
+            {showCfTierPicker ? (
+              <div className="flex flex-col gap-2">
+                <Label>{t("add.hostnameMode")}</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  {CF_TIER_OPTIONS.map(({ value, titleKey, descKey }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setCfTier(value)}
+                      aria-pressed={cfTier === value}
+                      className={cn(
+                        "flex flex-col gap-1 rounded-lg border p-3 text-left transition-all",
+                        "hover:border-ring hover:bg-accent/50",
+                        cfTier === value && "border-ring bg-accent/50",
+                      )}
+                    >
+                      <span className="text-[13px] font-medium">
+                        {t(titleKey)}
+                      </span>
+                      <span className="text-xs leading-relaxed text-muted-foreground">
+                        {t(descKey)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : showTcpCfHint ? (
+              <p className="text-xs leading-relaxed text-muted-foreground/70">
+                {t("add.hostnameTcpHint")}
+              </p>
+            ) : null}
+
             {/* Self-hosted: pick the deployed server */}
             {useFrp ? (
               <div className="flex flex-col gap-2">
@@ -440,17 +514,21 @@ export function AddTunnelDialog({
               </div>
             ) : null}
 
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="tunnel-name">{t("add.name")}</Label>
-              <Input
-                id="tunnel-name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder={t("add.namePlaceholder", {
-                  port: localPort || parsedPort || "",
-                })}
-              />
-            </div>
+            {/* Name: hidden for fixed-hostname tunnels — the backend names
+                them after the provisioned hostname. */}
+            {!useCfNamed ? (
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="tunnel-name">{t("add.name")}</Label>
+                <Input
+                  id="tunnel-name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder={t("add.namePlaceholder", {
+                    port: localPort || parsedPort || "",
+                  })}
+                />
+              </div>
+            ) : null}
             <div className="grid grid-cols-[1fr_120px] gap-3">
               <div className="flex flex-col gap-2">
                 <Label htmlFor="tunnel-host">{t("add.localHost")}</Label>
@@ -548,155 +626,174 @@ export function AddTunnelDialog({
               </p>
             </div>
 
-            {/* Advanced: access auth + IP allowlist */}
-            <div className="rounded-lg border">
-              <button
-                type="button"
-                onClick={() => setAdvancedOpen((prev) => !prev)}
-                aria-expanded={advancedOpen}
-                className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-[13px] font-medium transition-colors hover:bg-accent/40"
-              >
-                <ChevronDown
-                  className={cn(
-                    "size-4 shrink-0 text-muted-foreground transition-transform",
-                    advancedOpen && "rotate-180",
-                  )}
+            {/* Fixed hostname: the 3-step Cloudflare bind flow (replaces the
+                plain submit button). Appears once the local target is valid. */}
+            {useCfNamed ? (
+              localTargetReady ? (
+                <CfBindFlow
+                  localHost={localHost.trim() || "127.0.0.1"}
+                  localPort={parsedPort}
+                  onProvisioned={handleProvisioned}
                 />
-                {t("add.advanced")}
-                {advancedActive ? (
-                  <Badge variant="secondary" className="ml-auto text-[11px]">
-                    {t("add.advancedActive")}
-                  </Badge>
-                ) : null}
-              </button>
+              ) : (
+                <p className="text-xs leading-relaxed text-muted-foreground/70">
+                  {t("add.cf.needLocalFirst")}
+                </p>
+              )
+            ) : null}
 
-              {advancedOpen ? (
-                <div className="flex flex-col gap-4 border-t px-3 py-3.5">
-                  {/* Basic Auth */}
-                  <div className="flex flex-col gap-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex flex-col gap-0.5">
-                        <Label htmlFor="tunnel-auth-switch">
-                          {t("add.auth.title")}
-                        </Label>
-                        <p className="text-xs leading-relaxed text-muted-foreground">
-                          {authAvailable
-                            ? t("add.auth.description")
-                            : t("add.auth.tcpDisabled")}
-                        </p>
+            {/* Advanced: access auth + IP allowlist. Hidden for fixed-hostname
+                tunnels — cfProvision carries no auth/allowlist fields. */}
+            {!useCfNamed ? (
+              <div className="rounded-lg border">
+                <button
+                  type="button"
+                  onClick={() => setAdvancedOpen((prev) => !prev)}
+                  aria-expanded={advancedOpen}
+                  className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-[13px] font-medium transition-colors hover:bg-accent/40"
+                >
+                  <ChevronDown
+                    className={cn(
+                      "size-4 shrink-0 text-muted-foreground transition-transform",
+                      advancedOpen && "rotate-180",
+                    )}
+                  />
+                  {t("add.advanced")}
+                  {advancedActive ? (
+                    <Badge variant="secondary" className="ml-auto text-[11px]">
+                      {t("add.advancedActive")}
+                    </Badge>
+                  ) : null}
+                </button>
+
+                {advancedOpen ? (
+                  <div className="flex flex-col gap-4 border-t px-3 py-3.5">
+                    {/* Basic Auth */}
+                    <div className="flex flex-col gap-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex flex-col gap-0.5">
+                          <Label htmlFor="tunnel-auth-switch">
+                            {t("add.auth.title")}
+                          </Label>
+                          <p className="text-xs leading-relaxed text-muted-foreground">
+                            {authAvailable
+                              ? t("add.auth.description")
+                              : t("add.auth.tcpDisabled")}
+                          </p>
+                        </div>
+                        <Switch
+                          id="tunnel-auth-switch"
+                          checked={authActive}
+                          disabled={!authAvailable}
+                          onCheckedChange={toggleAuthEnabled}
+                        />
                       </div>
-                      <Switch
-                        id="tunnel-auth-switch"
-                        checked={authActive}
-                        disabled={!authAvailable}
-                        onCheckedChange={toggleAuthEnabled}
-                      />
-                    </div>
 
-                    {authActive ? (
-                      <div className="flex flex-col gap-2.5">
-                        <div className="grid grid-cols-2 gap-3">
-                          <div className="flex flex-col gap-2">
-                            <Label htmlFor="tunnel-auth-username">
-                              {t("add.auth.username")}
-                            </Label>
-                            <Input
-                              id="tunnel-auth-username"
-                              value={authUsername}
-                              onChange={(e) => setAuthUsername(e.target.value)}
-                              placeholder="admin"
-                              className="font-mono"
-                              autoComplete="off"
-                              spellCheck={false}
-                            />
-                          </div>
-                          <div className="flex flex-col gap-2">
-                            <Label htmlFor="tunnel-auth-password">
-                              {t("add.auth.password")}
-                            </Label>
-                            <div className="flex items-center gap-1">
+                      {authActive ? (
+                        <div className="flex flex-col gap-2.5">
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="flex flex-col gap-2">
+                              <Label htmlFor="tunnel-auth-username">
+                                {t("add.auth.username")}
+                              </Label>
                               <Input
-                                id="tunnel-auth-password"
-                                type="password"
-                                value={authPassword}
-                                onChange={(e) => {
-                                  setAuthPassword(e.target.value);
-                                  setPasswordError(false);
-                                }}
-                                className={cn(
-                                  "font-mono",
-                                  passwordError && "border-destructive",
-                                )}
-                                aria-invalid={passwordError}
-                                autoComplete="new-password"
+                                id="tunnel-auth-username"
+                                value={authUsername}
+                                onChange={(e) => setAuthUsername(e.target.value)}
+                                placeholder="admin"
+                                className="font-mono"
+                                autoComplete="off"
                                 spellCheck={false}
                               />
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon-sm"
-                                className="shrink-0 text-muted-foreground hover:text-foreground"
-                                onClick={() => {
-                                  setAuthPassword(randomPassword());
-                                  setPasswordError(false);
-                                }}
-                                aria-label={t("add.auth.generate")}
-                                title={t("add.auth.generate")}
-                              >
-                                <Dices className="size-4" />
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon-sm"
-                                className="shrink-0 text-muted-foreground hover:text-foreground"
-                                disabled={!authPassword}
-                                onClick={() => void copyPassword()}
-                                aria-label={t("add.auth.copyPassword")}
-                                title={t("add.auth.copyPassword")}
-                              >
-                                <Copy className="size-4" />
-                              </Button>
+                            </div>
+                            <div className="flex flex-col gap-2">
+                              <Label htmlFor="tunnel-auth-password">
+                                {t("add.auth.password")}
+                              </Label>
+                              <div className="flex items-center gap-1">
+                                <Input
+                                  id="tunnel-auth-password"
+                                  type="password"
+                                  value={authPassword}
+                                  onChange={(e) => {
+                                    setAuthPassword(e.target.value);
+                                    setPasswordError(false);
+                                  }}
+                                  className={cn(
+                                    "font-mono",
+                                    passwordError && "border-destructive",
+                                  )}
+                                  aria-invalid={passwordError}
+                                  autoComplete="new-password"
+                                  spellCheck={false}
+                                />
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  className="shrink-0 text-muted-foreground hover:text-foreground"
+                                  onClick={() => {
+                                    setAuthPassword(randomPassword());
+                                    setPasswordError(false);
+                                  }}
+                                  aria-label={t("add.auth.generate")}
+                                  title={t("add.auth.generate")}
+                                >
+                                  <Dices className="size-4" />
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  className="shrink-0 text-muted-foreground hover:text-foreground"
+                                  disabled={!authPassword}
+                                  onClick={() => void copyPassword()}
+                                  aria-label={t("add.auth.copyPassword")}
+                                  title={t("add.auth.copyPassword")}
+                                >
+                                  <Copy className="size-4" />
+                                </Button>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                        {passwordError ? (
-                          <p className="text-xs text-destructive">
-                            {t("add.auth.passwordRequired")}
+                          {passwordError ? (
+                            <p className="text-xs text-destructive">
+                              {t("add.auth.passwordRequired")}
+                            </p>
+                          ) : null}
+                          <p className="text-xs leading-relaxed text-muted-foreground">
+                            {hasExistingAuth
+                              ? t("add.auth.passwordKeep")
+                              : t("add.auth.storedHint")}
                           </p>
-                        ) : null}
-                        <p className="text-xs leading-relaxed text-muted-foreground">
-                          {hasExistingAuth
-                            ? t("add.auth.passwordKeep")
-                            : t("add.auth.storedHint")}
-                        </p>
-                      </div>
-                    ) : null}
-                  </div>
+                        </div>
+                      ) : null}
+                    </div>
 
-                  {/* IP allowlist */}
-                  <div className="flex flex-col gap-2">
-                    <Label htmlFor="tunnel-allowlist">
-                      {t("add.allowlist.title")}
-                    </Label>
-                    <Textarea
-                      id="tunnel-allowlist"
-                      value={allowlistText}
-                      onChange={(e) => setAllowlistText(e.target.value)}
-                      placeholder={t("add.allowlist.placeholder")}
-                      rows={3}
-                      className="resize-y font-mono text-[13px]"
-                      spellCheck={false}
-                    />
-                    <p className="text-xs leading-relaxed text-muted-foreground">
-                      {parsedAllowlist.length > 0
-                        ? t("add.allowlist.count", { n: parsedAllowlist.length })
-                        : t("add.allowlist.description")}
-                    </p>
+                    {/* IP allowlist */}
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="tunnel-allowlist">
+                        {t("add.allowlist.title")}
+                      </Label>
+                      <Textarea
+                        id="tunnel-allowlist"
+                        value={allowlistText}
+                        onChange={(e) => setAllowlistText(e.target.value)}
+                        placeholder={t("add.allowlist.placeholder")}
+                        rows={3}
+                        className="resize-y font-mono text-[13px]"
+                        spellCheck={false}
+                      />
+                      <p className="text-xs leading-relaxed text-muted-foreground">
+                        {parsedAllowlist.length > 0
+                          ? t("add.allowlist.count", { n: parsedAllowlist.length })
+                          : t("add.allowlist.description")}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              ) : null}
-            </div>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         )}
 
@@ -715,9 +812,15 @@ export function AddTunnelDialog({
             <span />
           )}
           {step === 2 ? (
-            <Button onClick={handleSubmit} disabled={submitting}>
-              {isEdit ? t("add.submitEdit") : t("add.submitCreate")}
-            </Button>
+            // Fixed-hostname flow drives its own "Create" CTA inside the
+            // bind panel, so the plain submit button is suppressed.
+            useCfNamed ? (
+              <span />
+            ) : (
+              <Button onClick={handleSubmit} disabled={submitting}>
+                {isEdit ? t("add.submitEdit") : t("add.submitCreate")}
+              </Button>
+            )
           ) : (
             <span />
           )}

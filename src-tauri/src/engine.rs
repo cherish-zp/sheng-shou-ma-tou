@@ -40,6 +40,7 @@ use tokio::io::AsyncBufReadExt;
 use tokio::sync::{oneshot, Notify};
 
 use crate::binman;
+use crate::cloudflare;
 use crate::forwarder::Forwarder;
 use crate::models::{Backend, TunnelConfig, TunnelState, TunnelStatus};
 use crate::providers;
@@ -556,6 +557,10 @@ async fn run_attempt(engine: &Engine, handle: &TunnelHandle, cfg: &TunnelConfig)
     // HERE, once per attempt: a rotated frps token or an edited server is
     // picked up on every retry. The config dials the FORWARDER (dial_cfg), so
     // all backends flow through the same stats/auth/allowlist path.
+    // CloudflareNamed similarly prepares per attempt: both tokens are re-read
+    // from the keychain and the remote ingress is retargeted to this
+    // attempt's forwarder port before the command (with its precomputed fixed
+    // URL) is returned.
     let (mut cmd, expected_url) = match cfg.backend {
         Backend::Frp => {
             let launch = match providers::prepare_frpc_config(&engine.app, &dial_cfg).await {
@@ -575,6 +580,21 @@ async fn run_attempt(engine: &Engine, handle: &TunnelHandle, cfg: &TunnelConfig)
                 providers::build_frpc_command(&binary, &launch.config_path),
                 launch.public_url,
             )
+        }
+        Backend::CloudflareNamed => {
+            match prepare_cf_named_attempt(cfg, &binary, forwarder.port()).await {
+                Ok(prepared) => prepared,
+                // Missing keychain tokens / expired API token / dashboard-
+                // rewritten ingress: unrecoverable for this configuration,
+                // surface as Error instead of retrying forever.
+                Err(e) => {
+                    return AttemptOutcome {
+                        had_url: false,
+                        fatal: Some(e),
+                        error: None,
+                    };
+                }
+            }
         }
         _ => (providers::build_command(&dial_cfg, &binary), None),
     };
@@ -670,6 +690,15 @@ async fn run_attempt(engine: &Engine, handle: &TunnelHandle, cfg: &TunnelConfig)
                     {
                         hit = expected_url.clone();
                     }
+                    // Named tunnels never print their URL either: the fixed
+                    // hostname was precomputed at config-prep time and binds
+                    // once cloudflared registers with the edge.
+                    if hit.is_none()
+                        && cfg.backend == Backend::CloudflareNamed
+                        && providers::cf_named_tunnel_ready(&line)
+                    {
+                        hit = expected_url.clone();
+                    }
                     if let Some(url) = hit {
                         public_url = Some(url.clone());
                         let st = handle.update(|s| {
@@ -729,6 +758,69 @@ async fn run_attempt(engine: &Engine, handle: &TunnelHandle, cfg: &TunnelConfig)
             .or(exit_note)
             .or_else(|| Some("tunnel process exited unexpectedly".to_string())),
     }
+}
+
+/// CloudflareNamed pre-spawn preparation, mirroring the frp prepare phase:
+/// validate the provision-time fields, re-read both tokens from the
+/// keychain, retarget the remote ingress to THIS attempt's forwarder port,
+/// then build the command plus the precomputed fixed public URL
+/// (`https://{cf_hostname}` — fixed at provision time, never changes).
+async fn prepare_cf_named_attempt(
+    cfg: &TunnelConfig,
+    binary: &std::path::Path,
+    forwarder_port: u16,
+) -> Result<(tokio::process::Command, Option<String>), String> {
+    let missing_field = |what: &str| {
+        format!("固定域名隧道缺少 {what} 配置（数据不完整，请删除后重新绑定 Cloudflare 域名）")
+    };
+    let hostname = cfg
+        .cf_hostname
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| missing_field("cf_hostname"))?;
+    let account_id = cfg
+        .cf_account_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| missing_field("cf_account_id"))?
+        .to_string();
+    let tunnel_id = cfg
+        .cf_tunnel_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| missing_field("cf_tunnel_id"))?
+        .to_string();
+
+    // Both tokens live in the OS keychain under the LOCAL tunnel id (the
+    // slots commands::cf_provision writes). Re-read on every attempt so a
+    // re-provisioned tunnel is picked up without an app restart.
+    let run_token =
+        cloudflare::get_tunnel_run_token(&cfg.id).map_err(|e| format!("读取隧道运行 token 失败：{e}"))?;
+    let api_token =
+        cloudflare::get_api_token(&cfg.id).map_err(|e| format!("读取 Cloudflare API token 失败：{e}"))?;
+
+    // The remote ingress service must dial THIS attempt's forwarder port.
+    // Blocking HTTP round trip -> dedicated worker thread (spawn_blocking).
+    // Failure (expired API token, unreachable API, dashboard-rewritten
+    // config) is fatal: cloudflared would otherwise dial the placeholder
+    // port from provisioning or a dead forwarder port from an older run.
+    let update = tauri::async_runtime::spawn_blocking(move || {
+        cloudflare::update_ingress_service(&api_token, &account_id, &tunnel_id, forwarder_port)
+    })
+    .await
+    .map_err(|e| format!("ingress 更新任务执行失败：{e}"))
+    .and_then(|r| r);
+    if let Err(e) = update {
+        return Err(format!(
+            "更新 Cloudflare ingress 端口失败（API token 可能已过期或网络不可用）：{e}"
+        ));
+    }
+
+    let cmd = providers::build_cf_command(cfg, binary, &run_token);
+    Ok((cmd, Some(format!("https://{hostname}"))))
 }
 
 /// Forward one output stream to the shared line channel until EOF.

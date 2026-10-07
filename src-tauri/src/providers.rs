@@ -109,6 +109,19 @@ pub fn build_frpc_command(binary: &Path, config_path: &Path) -> tokio::process::
     cmd
 }
 
+/// Build a tokio command that runs a Cloudflare NAMED tunnel:
+/// `cloudflared tunnel --no-autoupdate run` (args from `build_args`) with
+/// the tunnel-run token injected as the TUNNEL_TOKEN environment variable —
+/// the token must never appear in argv, where other local processes could
+/// read it. The origin routing comes from the remote-managed ingress
+/// (config_src=cloudflare), so no --url flag is needed.
+pub fn build_cf_command(cfg: &TunnelConfig, binary: &Path, run_token: &str) -> tokio::process::Command {
+    let mut cmd = tokio::process::Command::new(binary);
+    cmd.args(build_args(cfg));
+    cmd.env("TUNNEL_TOKEN", run_token);
+    cmd
+}
+
 /// Everything the engine needs to spawn one frpc attempt: the generated
 /// config file plus the public URL the tunnel will expose once frpc reports
 /// `start proxy success` (frpc never prints the endpoint itself).
@@ -306,6 +319,17 @@ pub fn frpc_proxy_started(line: &str) -> bool {
     strip_ansi(line)
         .to_ascii_lowercase()
         .contains("start proxy success")
+}
+
+/// True when a cloudflared line announces a named-tunnel connector has
+/// registered with the edge:
+/// `2026-10-07T08:00:00Z INF Registered tunnel connection connIndex=0 ...`.
+/// This is the readiness signal for Backend::CloudflareNamed (the fixed URL
+/// is known at provision time, so only the edge registration is awaited).
+pub fn cf_named_tunnel_ready(line: &str) -> bool {
+    strip_ansi(line)
+        .to_ascii_lowercase()
+        .contains("registered tunnel connection")
 }
 
 /// True when an frpc line reports that the server REJECTED a proxy:
@@ -624,6 +648,51 @@ mod tests {
             build_args(&cfg(Backend::Bore, 8099)),
             vec!["local", "--to", "bore.pub", "8099"]
         );
+    }
+
+    #[test]
+    fn cf_named_args_run_without_url() {
+        // Named tunnels get their routing from the remote-managed ingress;
+        // the run token travels via TUNNEL_TOKEN, never argv.
+        assert_eq!(
+            build_args(&cfg(Backend::CloudflareNamed, 8080)),
+            vec!["tunnel", "--no-autoupdate", "run"]
+        );
+    }
+
+    #[test]
+    fn cf_command_injects_tunnel_token_env() {
+        let cmd = build_cf_command(&cfg(Backend::CloudflareNamed, 8080), Path::new("cloudflared"), "run-secret");
+        let std_cmd = cmd.as_std();
+        assert_eq!(
+            std_cmd.get_envs().find(|(k, _)| *k == std::ffi::OsStr::new("TUNNEL_TOKEN")),
+            Some((std::ffi::OsStr::new("TUNNEL_TOKEN"), Some(std::ffi::OsStr::new("run-secret"))))
+        );
+        // argv stays free of the token.
+        assert_eq!(
+            std_cmd.get_args().collect::<Vec<_>>(),
+            vec![std::ffi::OsStr::new("tunnel"), std::ffi::OsStr::new("--no-autoupdate"), std::ffi::OsStr::new("run")]
+        );
+    }
+
+    // --- cloudflared named-tunnel readiness ---------------------------------
+
+    #[test]
+    fn cf_named_tunnel_ready_on_registration_line() {
+        assert!(cf_named_tunnel_ready(
+            "2026-10-07T08:00:00Z INF Registered tunnel connection connIndex=0 id=abc-123"
+        ));
+        assert!(cf_named_tunnel_ready(
+            "\u{1b}[2m2026-10-07T08:00:00Z\u{1b}[0m \u{1b}[32mINF\u{1b}[0m Registered tunnel connection connIndex=1"
+        ));
+        assert!(cf_named_tunnel_ready("registered tunnel connection (lowercase match)"));
+        assert!(!cf_named_tunnel_ready(
+            "2026-10-07T08:00:01Z INF Initiating graceful shutdown due to terminal disconnect"
+        ));
+        assert!(!cf_named_tunnel_ready(
+            "2026-10-07T08:00:00Z INF Starting tunnel  |  https://x.trycloudflare.com"
+        ));
+        assert!(!cf_named_tunnel_ready("no signal here"));
     }
 
     // --- cloudflared URL parsing -------------------------------------------

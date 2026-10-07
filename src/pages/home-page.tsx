@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { FileUp, Plus } from "lucide-react";
 
@@ -8,7 +8,11 @@ import { TunnelCard } from "@/components/tunnel/tunnel-card";
 import { LogSheet } from "@/components/tunnel/log-sheet";
 import { BridgeIllustration } from "@/components/pier-logo";
 import { Button } from "@/components/ui/button";
-import { useTunnelStore, removeConfig } from "@/store/tunnel-store";
+import {
+  consumeNewTunnelIntent,
+  useTunnelStore,
+  removeConfig,
+} from "@/store/tunnel-store";
 import type { TunnelConfig } from "@/types/tunnel";
 
 export function HomePage() {
@@ -20,6 +24,15 @@ export function HomePage() {
   const [logTunnel, setLogTunnel] = useState<TunnelConfig | null>(null);
   const [logOpen, setLogOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+
+  // The Settings page can jump straight into the New Tunnel wizard
+  // (Cloudflare fixed-hostname entry point).
+  useEffect(() => {
+    if (consumeNewTunnelIntent()) {
+      setEditTunnel(null);
+      setDialogOpen(true);
+    }
+  }, []);
 
   const openCreate = () => {
     setEditTunnel(null);

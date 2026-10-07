@@ -76,6 +76,9 @@ export function TunnelCard({ tunnel, state, onEdit, onShowLogs, onDelete }: Tunn
   const publicUrl = state?.publicUrl;
   const isActive = ACTIVE_STATUSES.has(status);
   const switching = busy || status === "starting" || status === "reconnecting";
+  // Fixed-hostname tunnels cannot be edited in place: changing the setup
+  // requires a fresh provision on the Cloudflare side.
+  const isCfNamed = tunnel.backend === "cloudflareNamed";
 
   // Live traffic: the per-second stats event wins over the coarse state
   // snapshot so the numbers update every second while running.
@@ -108,7 +111,12 @@ export function TunnelCard({ tunnel, state, onEdit, onShowLogs, onDelete }: Tunn
     try {
       await api.deleteTunnel(tunnel.id);
       setConfirmOpen(false);
-      toast.success(t("card.deleteSuccess", { name: tunnel.name }));
+      toast.success(
+        t("card.deleteSuccess", { name: tunnel.name }),
+        // Deleting is local-only: the remote tunnel + DNS record stay in the
+        // user's Cloudflare account until manual cleanup (or a later version).
+        isCfNamed ? { description: t("card.deleteCfNamedHint") } : undefined,
+      );
       onDelete(tunnel);
     } catch (error) {
       toast.error(t("card.deleteFailed"), { description: errorMessage(error) });
@@ -156,9 +164,11 @@ export function TunnelCard({ tunnel, state, onEdit, onShowLogs, onDelete }: Tunn
           <Badge variant="outline" className="text-[11px] text-muted-foreground">
             {tunnel.backend === "cloudflare"
               ? t("card.backendCloudflare")
-              : tunnel.backend === "bore"
-                ? t("card.backendBore")
-                : t("card.backendFrp")}
+              : tunnel.backend === "cloudflareNamed"
+                ? t("card.backendCloudflareNamed")
+                : tunnel.backend === "bore"
+                  ? t("card.backendBore")
+                  : t("card.backendFrp")}
           </Badge>
 
           {/* Access control markers */}
@@ -219,10 +229,24 @@ export function TunnelCard({ tunnel, state, onEdit, onShowLogs, onDelete }: Tunn
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-40">
-                <DropdownMenuItem onSelect={() => onEdit(tunnel)}>
-                  <Pencil />
-                  {t("card.editTunnel")}
-                </DropdownMenuItem>
+                {isCfNamed ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <DropdownMenuItem disabled>
+                        <Pencil />
+                        {t("card.editTunnel")}
+                      </DropdownMenuItem>
+                    </TooltipTrigger>
+                    <TooltipContent side="left">
+                      {t("card.editDisabledCfNamed")}
+                    </TooltipContent>
+                  </Tooltip>
+                ) : (
+                  <DropdownMenuItem onSelect={() => onEdit(tunnel)}>
+                    <Pencil />
+                    {t("card.editTunnel")}
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem
                   variant="destructive"
                   onSelect={() => setConfirmOpen(true)}

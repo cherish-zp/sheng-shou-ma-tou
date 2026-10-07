@@ -121,6 +121,26 @@ export function mergeState(next: TunnelState) {
   setState({ states: { ...state.states, [next.id]: next } });
 }
 
+// ---------------------------------------------------------------------------
+// Cross-page "open the New Tunnel wizard" intent (v0.2.0: the Settings page
+// Cloudflare card jumps into the wizard). The intent is a plain module flag —
+// navigating to the home route remounts HomePage, which consumes it on mount.
+// ---------------------------------------------------------------------------
+
+let newTunnelIntent = false;
+
+/** Request that the New Tunnel wizard opens once the home page shows up. */
+export function requestNewTunnel(): void {
+  newTunnelIntent = true;
+}
+
+/** Consume the pending intent. True means the wizard should open now. */
+export function consumeNewTunnelIntent(): boolean {
+  const pending = newTunnelIntent;
+  newTunnelIntent = false;
+  return pending;
+}
+
 /** Fetch engine install status from the backend. */
 export async function refreshBinaryStatus(): Promise<void> {
   try {

@@ -14,10 +14,12 @@
 /// 为 ASCII productName（rpm/NSIS 工具链对非 ASCII 文件名不可靠）。
 pub const DISPLAY_NAME_ZH: &str = "圣手码头";
 
-/// 英文界面显示名（i18n 英文场景沿用既有英文品牌）。
+/// 英文界面显示名（i18n en 场景的 app.name；Rust 侧预留引用）。
+#[allow(dead_code)]
 pub const DISPLAY_NAME_EN: &str = "Pier";
 
-/// 包内可执行文件名（拉丁）。
+/// 包内可执行文件名（拉丁，与 tauri.conf.json mainBinaryName 对应）。
+#[allow(dead_code)]
 pub const EXECUTABLE_NAME: &str = "ShengShouMaTou";
 
 /// 旧 bundle identifier（数据目录迁移来源）。

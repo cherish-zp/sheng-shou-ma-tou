@@ -1,8 +1,18 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 import { useTheme } from "next-themes";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
-import { Cloud, LoaderCircle, Monitor, Moon, Radio, Server, Sun } from "lucide-react";
+import {
+  ArrowRight,
+  Cloud,
+  LoaderCircle,
+  Monitor,
+  Moon,
+  Radio,
+  Server,
+  Sun,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -32,6 +42,7 @@ import { cn, errorMessage } from "@/lib/utils";
 import {
   installEngine,
   refreshBinaryStatus,
+  requestNewTunnel,
   useTunnelStore,
 } from "@/store/tunnel-store";
 import type { Backend, BinaryInfo } from "@/types/tunnel";
@@ -157,6 +168,9 @@ export function SettingsPage() {
         {/* Autostart */}
         <AutostartCard />
 
+        {/* Cloudflare fixed hostnames (v0.2.0) */}
+        <CfNamedCard />
+
         {/* Engines */}
         <Card>
           <CardHeader>
@@ -182,6 +196,54 @@ export function SettingsPage() {
         </Card>
       </div>
     </div>
+  );
+}
+
+function CfNamedCard() {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+
+  // MVP: the token lives in the OS keychain and there is no list command, so
+  // this card only explains the entry point and how to unlink. Token rotation
+  // UI is planned for a later version.
+  function goCreate() {
+    requestNewTunnel();
+    navigate("/");
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">
+          {t("settings.cloudflareNamedTitle")}
+        </CardTitle>
+        <CardDescription>
+          {t("settings.cloudflareNamedDescription")}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <ul className="flex flex-col gap-1.5 text-[13px] leading-relaxed text-muted-foreground">
+          <li className="flex gap-2">
+            <span className="text-foreground/40">·</span>
+            {t("settings.cloudflareNamedHow")}
+          </li>
+          <li className="flex gap-2">
+            <span className="text-foreground/40">·</span>
+            {t("settings.cloudflareNamedUnbind")}
+          </li>
+          <li className="flex gap-2">
+            <span className="text-foreground/40">·</span>
+            {t("settings.cloudflareNamedToken")}
+          </li>
+        </ul>
+        <div className="flex justify-end">
+          <Button variant="outline" size="sm" onClick={goCreate}>
+            {t("settings.cloudflareNamedCta")}
+            <ArrowRight className="size-4" />
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

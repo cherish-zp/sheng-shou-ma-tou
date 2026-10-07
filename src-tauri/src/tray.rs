@@ -122,8 +122,8 @@ fn config_fingerprint(app: &AppHandle) -> String {
 
 /// Build the full menu: Open Pier | Tunnels submenu | Quit Pier.
 fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
-    let show = MenuItem::with_id(app, "show", &fmt_display("打开"), true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", &fmt_display("退出"), true, None::<&str>)?;
+    let show = MenuItem::with_id(app, "show", fmt_display("打开"), true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", fmt_display("退出"), true, None::<&str>)?;
     let sep_before = PredefinedMenuItem::separator(app)?;
     let sep_after = PredefinedMenuItem::separator(app)?;
 
