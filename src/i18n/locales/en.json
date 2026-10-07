@@ -64,7 +64,13 @@
     "allowlistTooltip": "IP allowlist · {{n}} rules",
     "connActive": "active connections",
     "editDisabledCfNamed": "Fixed-hostname tunnels cannot be edited. Delete and recreate to change the setup.",
-    "deleteCfNamedHint": "The remote tunnel and DNS record remain in your Cloudflare account — clean up in the Cloudflare dashboard (one-click cleanup is coming in a later version)."
+    "deleteCfNamedHint": "The remote tunnel and DNS record remain in your Cloudflare account — clean up in the Cloudflare dashboard (one-click cleanup is coming in a later version).",
+    "card.cleanupCfNamed": "Clean up cloud resources",
+    "card.cleanupCfNamedTitle": "Clean up Cloudflare resources",
+    "card.cleanupCfNamedDescription": "This deletes tunnel “{name}” and its DNS records from your Cloudflare account, and removes the local config. This cannot be undone.",
+    "card.cleanupCfNamedConfirm": "Clean up",
+    "card.cleanupCfNamedDone": "Removed tunnel “{name}” and its DNS records from Cloudflare",
+    "card.cleanupCfNamedFailed": "Failed to clean up cloud resources"
   },
   "add": {
     "createTitle": "New Tunnel",

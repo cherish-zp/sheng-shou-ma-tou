@@ -6,6 +6,7 @@ import {
   ArrowRight,
   ArrowUp,
   CircleAlert,
+  CloudOff,
   Copy,
   Ellipsis,
   LoaderCircle,
@@ -68,6 +69,8 @@ export function TunnelCard({ tunnel, state, onEdit, onShowLogs, onDelete }: Tunn
   const { t } = useTranslation();
   const [busy, setBusy] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [cfCleanupOpen, setCfCleanupOpen] = useState(false);
+  const [cfCleaning, setCfCleaning] = useState(false);
   const [diagnosing, setDiagnosing] = useState(false);
   const [diagnosis, setDiagnosis] = useState<Diagnosis | null>(null);
   const [diagnosisOpen, setDiagnosisOpen] = useState(false);
@@ -104,6 +107,21 @@ export function TunnelCard({ tunnel, state, onEdit, onShowLogs, onDelete }: Tunn
       );
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function handleCfCleanup() {
+    try {
+      // Removes the remote tunnel + DNS records AND the local config.
+      await api.cfDeprovision(tunnel.id, true);
+      setCfCleanupOpen(false);
+      toast.success(t("card.cleanupCfNamedDone", { name: tunnel.name }));
+    } catch (e) {
+      toast.error(t("card.cleanupCfNamedFailed"), {
+        description: errorMessage(e),
+      });
+    } finally {
+      setCfCleaning(false);
     }
   }
 
@@ -233,6 +251,18 @@ export function TunnelCard({ tunnel, state, onEdit, onShowLogs, onDelete }: Tunn
                   <Pencil />
                   {t("card.editTunnel")}
                 </DropdownMenuItem>
+                {isCfNamed && (
+                  <DropdownMenuItem onSelect={() => setCfCleanupOpen(true)}>
+                    <CloudOff />
+                    {t("card.cleanupCfNamed")}
+                  </DropdownMenuItem>
+                )}
+                {isCfNamed && (
+                  <DropdownMenuItem onSelect={() => setCfCleanupOpen(true)}>
+                    <CloudOff />
+                    {t("card.cleanupCfNamed")}
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem
                   variant="destructive"
                   onSelect={() => setConfirmOpen(true)}
@@ -370,6 +400,25 @@ export function TunnelCard({ tunnel, state, onEdit, onShowLogs, onDelete }: Tunn
       </CardContent>
 
       {/* Delete confirmation */}
+      <Dialog open={cfCleanupOpen} onOpenChange={setCfCleanupOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{t("card.cleanupCfNamedTitle")}</DialogTitle>
+            <DialogDescription>
+              {t("card.cleanupCfNamedDescription", { name: tunnel.name })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCfCleanupOpen(false)}>
+              {t("common.cancel")}
+            </Button>
+            <Button variant="destructive" disabled={cfCleaning} onClick={handleCfCleanup}>
+              {cfCleaning ? <LoaderCircle className="size-4 animate-spin" /> : null}
+              {t("card.cleanupCfNamedConfirm")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent className="max-w-sm">
           <DialogHeader>

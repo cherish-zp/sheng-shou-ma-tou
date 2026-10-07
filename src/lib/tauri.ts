@@ -61,13 +61,8 @@ export const api = {
   cfVerifyToken: (token: string) => invoke<CfAccount[]>("cf_verify_token", { token }),
   cfListZones: (token: string) => invoke<CfZone[]>("cf_list_zones", { token }),
   cfProvision: (input: CfProvisionInput) => invoke<TunnelConfig>("cf_provision", { input }),
-  cfDeprovision: (args: {
-    id: string;
-    token: string;
-    zoneId: string;
-    cfTunnelId: string;
-    deleteDns: boolean;
-  }) => invoke<void>("cf_deprovision", { ...args }),
+  cfDeprovision: (id: string, deleteDns: boolean) =>
+    invoke<void>("cf_deprovision", { id, deleteDns }),
   cfUpdateHostname: (args: { id: string; zoneId: string; subdomain: string }) =>
     invoke<TunnelConfig>("cf_update_hostname", args),
   cfGetApiToken: (id: string) => invoke<string>("cf_get_api_token", { id }),

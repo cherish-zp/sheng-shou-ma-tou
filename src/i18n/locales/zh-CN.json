@@ -64,7 +64,13 @@
     "allowlistTooltip": "IP 白名单 · {{n}} 条规则",
     "connActive": "活跃连接",
     "editDisabledCfNamed": "固定域名隧道不支持编辑。修改配置需删除后重新创建。",
-    "deleteCfNamedHint": "云端隧道与 DNS 记录仍保留在 Cloudflare，可前往 Cloudflare Dashboard 清理（后续版本将支持一键清理）。"
+    "deleteCfNamedHint": "云端隧道与 DNS 记录仍保留在 Cloudflare，可前往 Cloudflare Dashboard 清理（后续版本将支持一键清理）。",
+    "card.cleanupCfNamed": "清理云端资源",
+    "card.cleanupCfNamedTitle": "清理 Cloudflare 云端资源",
+    "card.cleanupCfNamedDescription": "将从你的 Cloudflare 账号中删除隧道「{name}」及其 DNS 记录，并移除本地配置。此操作不可恢复。",
+    "card.cleanupCfNamedConfirm": "确认清理",
+    "card.cleanupCfNamedDone": "已清理「{name}」的云端隧道与 DNS 记录",
+    "card.cleanupCfNamedFailed": "清理云端资源失败"
   },
   "add": {
     "createTitle": "新建隧道",

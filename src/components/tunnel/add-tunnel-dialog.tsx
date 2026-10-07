@@ -377,9 +377,7 @@ export function AddTunnelDialog({
 
   const backendNote = isEdit
     ? editTunnel?.backend === "cloudflareNamed"
-      ? t("add.backendMappingCfNamedEdit", {
-          hostname: editTunnel.cfHostname || "",
-        })
+      ? "__CF_HOSTNAME_EDITOR__"
       : editTunnel?.backend === "frp"
         ? t("add.backendMappingFrpGeneric")
         : tunnelType === "http"

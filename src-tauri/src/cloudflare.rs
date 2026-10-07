@@ -486,6 +486,49 @@ pub fn zone_account(token: &str, zone_id: &str) -> String {
     .unwrap_or_default()
 }
 
+/// Resolve the zone id whose name is the suffix of `hostname`
+/// (e.g. hostname `t.lovezyp.online` -> zone `lovezyp.online`).
+pub fn resolve_zone_id(token: &str, hostname: &str) -> Result<String, String> {
+    let token = token.trim().to_string();
+    let hostname = hostname.trim().to_lowercase();
+    run_blocking("cf-resolve-zone", async move {
+        let mut page = 1u32;
+        loop {
+            let envelope = cf_request(
+                reqwest::Method::GET,
+                &token,
+                &format!("/zones?per_page=50&page={page}"),
+                None,
+            )
+            .await
+            .map_err(|e| format!("列出域名失败：{e}"))?;
+            let zones = parse_vec::<serde_json::Value>(&envelope.result, "域名列表")?;
+            for z in &zones {
+                let name = z.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                if !name.is_empty() && hostname.ends_with(name) {
+                    return Ok(z
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .to_string());
+                }
+            }
+            let total_pages = envelope
+                .result_info
+                .as_ref()
+                .map(|i| i.total_pages)
+                .unwrap_or(1);
+            if page >= total_pages || zones.is_empty() {
+                return Err(format!(
+                    "token 可见的域名中找不到 {} 的域名后缀（域名是否托管在 Cloudflare？）",
+                    hostname
+                ));
+            }
+            page += 1;
+        }
+    })
+}
+
 /// Read the stored API token for a tunnel (frontend "eye" reveal).
 pub fn stored_api_token(tunnel_id: &str) -> Result<String, String> {
     keychain_get(&api_token_account(tunnel_id))

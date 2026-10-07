@@ -568,14 +568,26 @@ pub fn cf_list_zones_stored(id: String) -> Result<Vec<crate::models::CfZone>, St
 /// Tear down the remote tunnel (and optionally its DNS record) and remove
 /// the local tunnel config.
 #[tauri::command]
-pub fn cf_deprovision(
-    state: State<'_, AppState>,
-    id: String,
-    token: String,
-    zone_id: String,
-    cf_tunnel_id: String,
-    delete_dns: bool,
-) -> Result<(), String> {
+pub fn cf_deprovision(state: State<'_, AppState>, id: String, delete_dns: bool) -> Result<(), String> {
+    let cfg = state
+        .store
+        .load()
+        .into_iter()
+        .find(|c| c.id == id)
+        .ok_or("tunnel not found")?;
+    if cfg.backend != crate::models::Backend::CloudflareNamed {
+        return Err("only Cloudflare fixed-hostname tunnels have cloud resources".into());
+    }
+    let hostname = cfg
+        .cf_hostname
+        .clone()
+        .ok_or("tunnel is not a Cloudflare fixed-hostname tunnel")?;
+    let cf_tunnel_id = cfg
+        .cf_tunnel_id
+        .clone()
+        .ok_or("tunnel is not a Cloudflare fixed-hostname tunnel")?;
+    let token = crate::cloudflare::stored_api_token(&id)?;
+    let zone_id = crate::cloudflare::resolve_zone_id(&token, &hostname)?;
     crate::cloudflare::deprovision(&token, &zone_id, &cf_tunnel_id, delete_dns)?;
     crate::cloudflare::delete_stored_tokens(&id);
     state.store.remove(&id)?;
