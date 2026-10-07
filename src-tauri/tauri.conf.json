@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "圣手码头",
+  "productName": "ShengShouMaTou",
   "mainBinaryName": "ShengShouMaTou",
   "version": "0.1.1",
   "identifier": "com.cherish.shengshoumatou",
