@@ -66,6 +66,11 @@ const ENGINE_META: Record<
     nameKey: "settings.engineFrp",
     descKey: "settings.engineFrpDescription",
   },
+  cloudflareNamed: {
+    icon: Cloud,
+    nameKey: "settings.engineCloudflare",
+    descKey: "settings.engineCloudflareNamedDescription",
+  },
 };
 
 export function SettingsPage() {
