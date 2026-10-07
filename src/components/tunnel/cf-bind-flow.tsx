@@ -42,13 +42,23 @@ interface CfBindFlowProps {
   localPort: number;
   /** Called after the tunnel was provisioned and started; parent closes the wizard. */
   onProvisioned: (tunnel: TunnelConfig) => void;
+  /** True when the local target is not ready yet: steps stay usable, but the
+      final provision button is disabled with `disabledReason` shown on top. */
+  disabled?: boolean;
+  disabledReason?: string;
 }
 
 type BindStep = 1 | 2 | 3;
 /** Provision progress: create the tunnel object, then route it, then run it. */
 type ProvisionPhase = "idle" | "create" | "route" | "start";
 
-export function CfBindFlow({ localHost, localPort, onProvisioned }: CfBindFlowProps) {
+export function CfBindFlow({
+  localHost,
+  localPort,
+  onProvisioned,
+  disabled = false,
+  disabledReason,
+}: CfBindFlowProps) {
   const { t } = useTranslation();
 
   // Entry steps only: 1 = token, 2 = zone + subdomain. Step 3 (provision) is
@@ -80,7 +90,7 @@ export function CfBindFlow({ localHost, localPort, onProvisioned }: CfBindFlowPr
 
   const zone = zones.find((z) => z.id === zoneId) ?? null;
   const subdomainValid = SUBDOMAIN_RE.test(subdomain);
-  const readyToCreate = Boolean(zone) && subdomainValid;
+  const readyToCreate = !disabled && Boolean(zone) && subdomainValid;
   const activeStep: BindStep = step === 1 ? 1 : readyToCreate ? 3 : 2;
 
   const STEP_KEYS = [
@@ -172,6 +182,11 @@ export function CfBindFlow({ localHost, localPort, onProvisioned }: CfBindFlowPr
         <Globe className="size-4 shrink-0 text-muted-foreground" />
         <p className="text-[13px] font-medium">{t("add.cf.title")}</p>
       </div>
+      {disabled && disabledReason && (
+        <p className="rounded-md border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-xs text-muted-foreground">
+          {disabledReason}
+        </p>
+      )}
       <ol className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px]">
         {STEP_KEYS.map((label, index) => {
           const value = (index + 1) as BindStep;

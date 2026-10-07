@@ -641,17 +641,13 @@ export function AddTunnelDialog({
             {/* Fixed hostname: the 3-step Cloudflare bind flow (replaces the
                 plain submit button). Appears once the local target is valid. */}
             {useCfNamed ? (
-              localTargetReady ? (
-                <CfBindFlow
-                  localHost={localHost.trim() || "127.0.0.1"}
-                  localPort={parsedPort}
-                  onProvisioned={handleProvisioned}
-                />
-              ) : (
-                <p className="text-xs leading-relaxed text-muted-foreground/70">
-                  {t("add.cf.needLocalFirst")}
-                </p>
-              )
+              <CfBindFlow
+                localHost={localHost.trim() || "127.0.0.1"}
+                localPort={parsedPort}
+                onProvisioned={handleProvisioned}
+                disabled={!localTargetReady}
+                disabledReason={t("add.cf.needLocalFirst")}
+              />
             ) : null}
 
             {/* Advanced: access auth + IP allowlist. Hidden for fixed-hostname
