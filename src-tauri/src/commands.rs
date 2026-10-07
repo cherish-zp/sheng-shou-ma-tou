@@ -102,6 +102,7 @@ fn migrate_keychain_secrets(app: &AppHandle) {
             }
         }
     }
+    eprintln!("[pier] 钥匙串迁移完成：{migrated} 条秘密已迁入本地秘密库");
 }
 
 /// Called from `lib.rs` on `RunEvent::Exit`: stop every running tunnel process
