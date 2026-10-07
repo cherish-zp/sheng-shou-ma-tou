@@ -311,14 +311,15 @@ jobs:
             if echo "$EXISTING" | grep -qx "$NAME"; then
               echo "skip existing: $NAME"; continue
             fi
-            for i in 1 2 3 4; do
+            for i in 1 2 3 4 5 6; do
               echo "upload $NAME (attempt $i)..."
-              if curl -sf --connect-timeout 20 --max-time 1800 \
+              if curl -fS --connect-timeout 20 --max-time 3600 \
                    -X POST "${API}/releases/${RELEASE_ID}/attach_files?access_token=${GITEE_TOKEN}" \
-                   -F "file=@${f}"; then
+                   -F "file=@${f}" 2>curl_err.txt; then
                 echo "uploaded: $NAME"; break
               fi
-              [ "$i" = 4 ] && echo "::error::failed to upload $NAME to Gitee"
+              echo "attempt $i failed:"; tail -3 curl_err.txt
+              [ "$i" = 6 ] && echo "::error::failed to upload $NAME to Gitee"
               sleep 30
             done
           done

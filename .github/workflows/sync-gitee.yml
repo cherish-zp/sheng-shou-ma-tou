@@ -1,0 +1,85 @@
+# 独立的 Gitee 附件同步（不重新构建）。
+# 用途：sync-gitee 在完整发布流水线中失败/中断后，手动重跑同步。
+#
+# 触发：Actions 页面 → Sync release to Gitee → Run workflow → 填 tag（如 v0.2.0）
+# 前提：仓库 Secret GITEE_TOKEN（Gitee 私人令牌，勾 projects 权限）。
+
+name: sync-gitee
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要同步的 release tag（如 v0.2.0）'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    name: Sync ${{ inputs.tag }} assets to Gitee
+    runs-on: ubuntu-latest
+    env:
+      GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+      GITEE_OWNER: princess-zp
+      GITEE_REPO: sheng-shou-ma-tou
+      TAG: ${{ inputs.tag }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Sync assets to Gitee release
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          API="https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}"
+
+          BODY=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body)
+          echo "GitHub release body fetched (${#BODY} chars)"
+
+          RELEASE_ID=$(curl -sf --connect-timeout 20 "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases/tags/${TAG}?access_token=${GITEE_TOKEN}" | jq -r '.id // empty' || true)
+          if [ -z "${RELEASE_ID}" ]; then
+            echo "Creating Gitee release ${TAG}..."
+            PAYLOAD=$(jq -n --arg tag "$TAG" --arg body "$BODY" \
+              '{tag_name: $tag, name: ("圣手码头 " + $tag), body: $body, prerelease: false, target_commitish: "main"}')
+            RELEASE_ID=$(curl -sf --connect-timeout 20 -X POST "${API}/releases?access_token=${GITEE_TOKEN}" \
+              -H 'Content-Type: application/json' -d "$PAYLOAD" | jq -r '.id') || true
+            if [ -z "${RELEASE_ID}" ]; then
+              echo "::error::failed to create Gitee release (check GITEE_TOKEN permissions: projects)"
+              exit 1
+            fi
+          fi
+          echo "Gitee release id: ${RELEASE_ID}"
+
+          rm -rf dist && mkdir -p dist
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir dist
+          ls -la dist/
+
+          EXISTING=$(curl -sf "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases/${RELEASE_ID}/attach_files?access_token=${GITEE_TOKEN}" | jq -r '.[].browser_download_url' | xargs -r -n1 basename || true)
+          FAILURES=0
+          for f in dist/*; do
+            BASE=$(basename "$f")
+            NAME="圣手码头${BASE#ShengShouMaTou}"
+            if [ "$NAME" != "$BASE" ]; then mv "$f" "dist/$NAME"; f="dist/$NAME"; fi
+            if echo "$EXISTING" | grep -qx "$NAME"; then
+              echo "skip existing: $NAME"; continue
+            fi
+            # 大文件跨境上传：-S 显示错误、单次上限 60 分钟、重试 6 次
+            UPLOADED=false
+            for i in 1 2 3 4 5 6; do
+              echo "upload $NAME (attempt $i)..."
+              if curl -fS --connect-timeout 20 --max-time 3600 \
+                   -X POST "${API}/releases/${RELEASE_ID}/attach_files?access_token=${GITEE_TOKEN}" \
+                   -F "file=@${f}" 2>curl_err.txt; then
+                echo "uploaded: $NAME"; UPLOADED=true; break
+              fi
+              echo "attempt $i failed:"; cat curl_err.txt | tail -3
+              [ "$i" = 6 ] && { echo "::error::failed to upload $NAME to Gitee"; FAILURES=$((FAILURES+1)); }
+              sleep 30
+            done
+          done
+          if [ "$FAILURES" -gt 0 ]; then
+            echo "::error::$FAILURES asset(s) failed; re-run this workflow to retry (idempotent)"
+          else
+            echo "All assets synced."
+          fi
