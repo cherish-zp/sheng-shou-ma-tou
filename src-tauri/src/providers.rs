@@ -86,8 +86,13 @@ pub fn build_args(cfg: &TunnelConfig) -> Vec<String> {
         // Named tunnels run via `tunnel run`; the tunnel token reaches
         // cloudflared through the TUNNEL_TOKEN env var (set by the engine
         // from the keychain — never a CLI argument).
+        // --protocol http2: same rationale as the quick-tunnel branch above —
+        // QUIC (UDP 443) is blocked on many networks and cloudflared's auto
+        // mode keeps retrying without degrading (live-verified).
         Backend::CloudflareNamed => vec![
             "tunnel".to_string(),
+            "--protocol".to_string(),
+            "http2".to_string(),
             "--no-autoupdate".to_string(),
             "run".to_string(),
         ],
@@ -656,7 +661,7 @@ mod tests {
         // the run token travels via TUNNEL_TOKEN, never argv.
         assert_eq!(
             build_args(&cfg(Backend::CloudflareNamed, 8080)),
-            vec!["tunnel", "--no-autoupdate", "run"]
+            vec!["tunnel", "--protocol", "http2", "--no-autoupdate", "run"]
         );
     }
 
