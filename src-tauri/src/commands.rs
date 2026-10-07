@@ -448,7 +448,7 @@ pub fn cf_deprovision(
     delete_dns: bool,
 ) -> Result<(), String> {
     crate::cloudflare::deprovision(&token, &zone_id, &cf_tunnel_id, delete_dns)?;
-    let _ = crate::cloudflare::delete_stored_tokens(&id);
+    crate::cloudflare::delete_stored_tokens(&id);
     state.store.remove(&id)?;
     Ok(())
 }
