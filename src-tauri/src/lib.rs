@@ -1,4 +1,5 @@
 mod binman;
+mod brand;
 mod commands;
 mod diagnostics;
 mod engine;

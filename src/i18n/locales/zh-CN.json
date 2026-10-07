@@ -1,6 +1,6 @@
 {
   "app": {
-    "name": "Pier",
+    "name": "圣手码头",
     "tagline": "内网穿透"
   },
   "nav": {
@@ -140,7 +140,7 @@
     "add": "添加服务器",
     "loadFailed": "加载服务器列表失败",
     "emptyTitle": "还没有服务器",
-    "emptyDescription": "添加一台自己的 VPS，Pier 会自动在上面部署 frps，让它成为你的专属隧道服务器。",
+    "emptyDescription": "添加一台自己的 VPS，圣手码头 会自动在上面部署 frps，让它成为你的专属隧道服务器。",
     "emptyCta": "添加第一台服务器",
     "statusRunning": "frps 运行中",
     "statusDeployed": "frps 已部署（未运行）",
@@ -169,7 +169,7 @@
     },
     "form": {
       "title": "添加服务器",
-      "description": "填写一台可以通过 SSH 登录的服务器，Pier 会在其上部署并管理 frps。",
+      "description": "填写一台可以通过 SSH 登录的服务器，圣手码头 会在其上部署并管理 frps。",
       "name": "名称",
       "namePlaceholder": "选填，例如「我的 VPS」",
       "host": "主机地址",
@@ -232,7 +232,7 @@
   "import": {
     "button": "导入",
     "title": "导入 frpc 配置",
-    "description": "粘贴 frpc 配置（支持 TOML / INI），Pier 会解析出可导入的隧道。",
+    "description": "粘贴 frpc 配置（支持 TOML / INI），圣手码头 会解析出可导入的隧道。",
     "placeholder": "在此粘贴 frpc.toml 或 frpc.ini 的内容…",
     "targetServer": "目标服务器",
     "noServer": "不指定服务器",
@@ -318,7 +318,7 @@
         "suggestions": [
           "确认服务器在线且网络可达：ping <服务器地址>",
           "检查服务器防火墙 / 云安全组是否放行 TCP 7000（frp 连接端口）",
-          "若服务器在国内境外线路不稳，稍后将由 Pier 自动重连"
+          "若服务器在国内境外线路不稳，稍后将由 圣手码头 自动重连"
         ]
       },
       "dnsFailed": {
@@ -343,7 +343,7 @@
         "title": "隧道引擎未安装",
         "detail": "本机缺少该隧道所需的引擎（cloudflared / bore / frpc），无法启动。",
         "suggestions": [
-          "Pier 通常会在启动时自动下载缺失的引擎，请检查网络后重试",
+          "圣手码头 通常会在启动时自动下载缺失的引擎，请检查网络后重试",
           "也可前往「设置 → 引擎」手动安装对应引擎",
           "安装完成后重新启动该隧道"
         ]
@@ -371,14 +371,14 @@
   "settings": {
     "title": "设置",
     "appearance": "外观",
-    "appearanceDescription": "选择 Pier 的界面主题",
+    "appearanceDescription": "选择 圣手码头 的界面主题",
     "themeSystem": "跟随系统",
     "themeLight": "浅色",
     "themeDark": "深色",
     "language": "语言",
     "languageDescription": "界面显示语言",
     "autostart": "开机自启",
-    "autostartDescription": "登录系统时自动在后台启动 Pier",
+    "autostartDescription": "登录系统时自动在后台启动 圣手码头",
     "autostartFailed": "无法获取开机自启状态",
     "autostartChangeFailed": "修改开机自启失败",
     "engines": "引擎",

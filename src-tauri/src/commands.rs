@@ -38,7 +38,7 @@ fn data_dir(app: &AppHandle) -> PathBuf {
     app.path().app_data_dir().unwrap_or_else(|e| {
         eprintln!("[pier] app data dir unavailable ({e}); using fallback location");
         dirs::data_dir()
-            .map(|d| d.join("Pier"))
+            .map(|d| d.join(crate::brand::DISPLAY_NAME_ZH))
             .unwrap_or_else(std::env::temp_dir)
     })
 }
@@ -51,9 +51,71 @@ pub fn shutdown(app: &AppHandle) {
     }
 }
 
+/// v0.1.1 更名（Pier → 圣手码头）迁移：bundle identifier 变更后
+/// `app_data_dir` 从 `com.masterfulhands.pier` 变为新路径，把旧目录中的
+/// 隧道/服务器配置与引擎二进制搬过来。幂等：新目录已有配置则跳过。
+/// keyring 的服务名是固定字符串（不随 identifier 变），SSH 密码与
+/// frps token / 隧道鉴权密码无需迁移。
+fn migrate_legacy_data_dir(app: &AppHandle) {
+    let new_dir = data_dir(app);
+    if new_dir.join("tunnels.json").exists() || new_dir.join("servers.json").exists() {
+        return;
+    }
+    let Some(legacy_dir) = dirs::data_dir().map(|d| d.join(crate::brand::LEGACY_IDENTIFIER))
+    else {
+        return;
+    };
+    if !legacy_dir.exists() {
+        return;
+    }
+    let entries = match std::fs::read_dir(&legacy_dir) {
+        Ok(e) => e,
+        Err(e) => {
+            eprintln!("[pier] legacy data dir unreadable: {e}");
+            return;
+        }
+    };
+    let _ = std::fs::create_dir_all(&new_dir);
+    for entry in entries.flatten() {
+        let target = new_dir.join(entry.file_name());
+        if target.exists() {
+            continue;
+        }
+        if let Err(e) = std::fs::rename(entry.path(), &target) {
+            // Cross-device fallback: copy instead of rename.
+            if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                let _ = copy_dir_all(&entry.path(), &target);
+            } else if let Err(e2) = std::fs::copy(entry.path(), &target) {
+                eprintln!("[pier] migrate {}: {e} / copy: {e2}", entry.path().display());
+            }
+        }
+    }
+    let _ = std::fs::remove_dir_all(&legacy_dir);
+    eprintln!(
+        "[pier] migrated legacy data dir {} → {}",
+        legacy_dir.display(),
+        new_dir.display()
+    );
+}
+
+fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let target = dst.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir_all(&entry.path(), &target)?;
+        } else {
+            std::fs::copy(entry.path(), &target)?;
+        }
+    }
+    Ok(())
+}
+
 /// Called once from `lib.rs` setup: build + manage `AppState`, then kick off
 /// auto-start for tunnels flagged `auto_start` (async, non-blocking).
 pub fn init_runtime(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    migrate_legacy_data_dir(app);
     std::fs::create_dir_all(data_dir(app))?;
 
     let state = AppState::new(app.clone());

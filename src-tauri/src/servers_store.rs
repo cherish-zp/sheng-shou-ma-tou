@@ -28,7 +28,7 @@ fn data_dir(app: &tauri::AppHandle) -> PathBuf {
     app.path().app_data_dir().unwrap_or_else(|e| {
         eprintln!("[pier] app data dir unavailable ({e}); using fallback location");
         dirs::data_dir()
-            .map(|d| d.join("Pier"))
+            .map(|d| d.join(crate::brand::DISPLAY_NAME_ZH))
             .unwrap_or_else(std::env::temp_dir)
     })
 }

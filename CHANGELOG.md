@@ -5,6 +5,18 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本 2.0.0](https://semver.org/lang/zh-CN/)。
 
+## [0.1.1] - 2026-10-07
+
+### Changed
+- 应用更名「圣手码头」：.app/Dock/托盘/窗口标题改为中文显示名，包内可执行文件改为 `ShengShouMaTou`（规避中文可执行名工具链风险，与圣手捕影命名分层一致）
+- Bundle identifier 变更为 `com.cherish.shengshoumatou`，启动时自动迁移旧 `com.masterfulhands.pier` 数据目录（隧道/服务器配置与引擎二进制；钥匙串凭据不受影响）
+- 品牌集中管理：Rust `brand.rs` 与前端 `brand.ts` 单一事实来源，中英文界面显示名分离（zh: 圣手码头 / en: Pier）
+- 仓库迁移至 `cherish-zp/sheng-shou-ma-tou`（GitHub）与 `princess-zp/sheng-shou-ma-tou`（Gitee）
+
+### Fixed
+- 注册 single-instance 插件：杜绝双开（双托盘图标），第二实例启动即退出并置前已有窗口
+- `AtomicU32::fetch_update` → `try_update`（消除 Rust 1.95 deprecated 警告）
+
 ## [0.1.0] - 2026-10-06
 
 首个公开版本：一座从内网架到公网的桥。

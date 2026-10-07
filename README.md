@@ -1,15 +1,16 @@
-# Pier
+# 圣手码头（Pier）
 
 > 一座从内网架到公网的桥。开源、精美的桌面端内网穿透工具。
+> 2026-10 由 Pier 更名「圣手码头」，英文界面与仓库标识沿用 Pier / sheng-shou-ma-tou。
 
 **Pier** 把你电脑上的本地端口一键映射到公网——无需注册账号、无需命令行，装上就能用。
 
-<!-- 发布时把 cherish-zp/MasterfulHandsPier 替换为实际仓库地址（下同） -->
-[![Build](https://github.com/cherish-zp/MasterfulHandsPier/actions/workflows/build.yml/badge.svg)](https://github.com/cherish-zp/MasterfulHandsPier/actions/workflows/build.yml) ![platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-blue) ![license](https://img.shields.io/badge/license-MIT-green)
+<!-- 发布时把 cherish-zp/sheng-shou-ma-tou 替换为实际仓库地址（下同） -->
+[![Build](https://github.com/cherish-zp/sheng-shou-ma-tou/actions/workflows/build.yml/badge.svg)](https://github.com/cherish-zp/sheng-shou-ma-tou/actions/workflows/build.yml) ![platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-blue) ![license](https://img.shields.io/badge/license-MIT-green)
 
 ## 下载
 
-前往 [GitHub Releases](https://github.com/cherish-zp/MasterfulHandsPier/releases) 获取最新版本：
+前往 [GitHub Releases](https://github.com/cherish-zp/sheng-shou-ma-tou/releases) 获取最新版本：
 
 | 平台 | 产物 |
 |---|---|

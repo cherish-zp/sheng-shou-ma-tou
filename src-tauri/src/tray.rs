@@ -36,13 +36,17 @@ const CONFIG_POLL_INTERVAL: Duration = Duration::from_secs(1);
 /// `tunnel://state` events into a single rebuild.
 static REFRESH_PENDING: AtomicBool = AtomicBool::new(false);
 
+fn fmt_display(prefix: &str) -> String {
+    format!("{prefix} {}", crate::brand::DISPLAY_NAME_ZH)
+}
+
 pub fn setup(app: &AppHandle) -> tauri::Result<()> {
     let menu = build_menu(app)?;
 
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
         .menu(&menu)
         .show_menu_on_left_click(true)
-        .tooltip("Pier");
+        .tooltip(crate::brand::DISPLAY_NAME_ZH);
 
     if let Ok(icon) = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png")) {
         builder = builder.icon(icon);
@@ -116,8 +120,8 @@ fn config_fingerprint(app: &AppHandle) -> String {
 
 /// Build the full menu: Open Pier | Tunnels submenu | Quit Pier.
 fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
-    let show = MenuItem::with_id(app, "show", "Open Pier", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit Pier", true, None::<&str>)?;
+    let show = MenuItem::with_id(app, "show", &fmt_display("打开"), true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", &fmt_display("退出"), true, None::<&str>)?;
     let sep_before = PredefinedMenuItem::separator(app)?;
     let sep_after = PredefinedMenuItem::separator(app)?;
 

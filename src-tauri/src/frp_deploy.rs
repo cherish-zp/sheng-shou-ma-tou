@@ -233,7 +233,7 @@ async fn deploy_steps(
         "systemd",
         StepStatus::Running,
         Some(if download.upgrade {
-            "检测到已有 Pier 部署，正在升级…".to_string()
+            "检测到已有圣手码头部署，正在升级…".to_string()
         } else {
             "正在安装 systemd 服务…".to_string()
         }),
@@ -364,7 +364,7 @@ async fn step_probe(ssh: &mut SshSession, server: &ServerConfig) -> Result<Probe
     if code != 0 || out.trim() != "yes" {
         return Err(
             "目标服务器未运行 systemd（可能是容器或无 systemd 的最小化系统），\
-             Pier 依赖 systemd 托管 frps 服务"
+             圣手码头依赖 systemd 托管 frps 服务"
                 .to_string(),
         );
     }
@@ -552,7 +552,7 @@ async fn step_config(
     if foreign {
         return Err(
             "检测到已有 frps 安装（frps.service 或 /etc/frp 目录），暂不支持接管。\
-             如需 Pier 管理，请先手动停止并移除现有 frps。"
+             如需圣手码头管理，请先手动停止并移除现有 frps。"
                 .to_string(),
         );
     }

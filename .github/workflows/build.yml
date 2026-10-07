@@ -215,7 +215,7 @@ jobs:
     env:
       GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
       GITEE_OWNER: princess-zp
-      GITEE_REPO: MasterfulHandsPier
+      GITEE_REPO: sheng-shou-ma-tou
       TAG: ${{ github.ref_name }}
     steps:
       - name: Skip when GITEE_TOKEN is not configured
