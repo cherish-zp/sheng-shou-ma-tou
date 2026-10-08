@@ -10,7 +10,7 @@ use std::sync::Arc;
 use tauri::{AppHandle, Manager, State};
 
 use crate::engine::Engine;
-use crate::models::{Backend, BinaryStatus, TunnelConfig, TunnelState, TunnelStatus};
+use crate::models::{Backend, BinaryStatus, TunnelConfig, TunnelState, TunnelStatus, TunnelType};
 use crate::store::Store;
 
 pub struct AppState {
@@ -215,6 +215,18 @@ fn validate_and_fill(cfg: &mut TunnelConfig) -> Result<(), String> {
     if cfg.name.trim().is_empty() {
         cfg.name = format!("port-{}", cfg.local_port);
     }
+    // UDP typed-port tunnels are frp-only (bore is TCP-only, Cloudflare has
+    // no plain-UDP ingress) and need a remote port on the server.
+    if cfg.tunnel_type == TunnelType::Udp {
+        if cfg.backend != Backend::Frp {
+            return Err(
+                "UDP 端口转发仅支持自建服务器通道 (UDP forwarding requires the frp backend)".into(),
+            );
+        }
+        if cfg.remote_port.is_none() {
+            return Err("UDP 隧道缺少远程端口 (remotePort is required for udp tunnels)".into());
+        }
+    }
     Ok(())
 }
 
@@ -372,10 +384,21 @@ pub fn add_server(app: AppHandle, input: ServerInput) -> Result<ServerConfig, St
         frps_vhost_https_port: input.frps_vhost_https_port.unwrap_or(8443),
         frps_dashboard_port: input.frps_dashboard_port.unwrap_or(7500),
         subdomain_host: input.subdomain_host.map(|s| s.trim().to_string()),
+        frps_proxy_port_start: input.frps_proxy_port_start,
+        frps_proxy_port_end: input.frps_proxy_port_end,
         deployed: false,
         frps_version: None,
         created_at: chrono::Utc::now().to_rfc3339(),
     };
+    // A proxy port range must be well-formed: start <= end inside 1..=65535.
+    if let (Some(start), Some(end)) = (server.frps_proxy_port_start, server.frps_proxy_port_end) {
+        if start == 0 || start > end {
+            return Err(
+                "转发端口段无效 (proxy port range is invalid: need 1 <= start <= end <= 65535)"
+                    .into(),
+            );
+        }
+    }
     crate::servers_store::set_ssh_secret(&app, &server.id, &input.secret)?;
     crate::servers_store::save_server(&app, &server)?;
     Ok(server)

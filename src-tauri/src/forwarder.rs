@@ -17,7 +17,7 @@
 //
 // Public API below is frozen — commands.rs and engine.rs code against it.
 use std::collections::HashMap;
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -114,8 +114,8 @@ impl Forwarder {
 
         let (stop_tx, stop_rx) = watch::channel(false);
         // Basic auth only applies to HTTP-type tunnels whose auth.kind is
-        // "basic"; a TCP tunnel's payload is an opaque protocol, so
-        // intercepting headers is impossible.
+        // "basic"; TCP/UDP payloads are opaque protocols, so intercepting
+        // headers is impossible.
         let auth = match cfg.tunnel_type {
             TunnelType::Http => cfg
                 .auth
@@ -123,7 +123,7 @@ impl Forwarder {
                 .filter(|a| a.kind == TunnelAuth::BASIC)
                 .zip(auth_password)
                 .map(|(a, p)| (a.username.clone(), p)),
-            TunnelType::Tcp => None,
+            TunnelType::Tcp | TunnelType::Udp => None,
         };
 
         let fwd = Arc::new(Self {
@@ -262,6 +262,335 @@ impl Forwarder {
                     ts: chrono::Utc::now().to_rfc3339(),
                 },
             );
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// UDP forwarder (typed-port tunnels)
+// ---------------------------------------------------------------------------
+
+/// How long a UDP session (one client address) may stay idle before its
+/// upstream socket is released. DNS-style short queries refresh it on use.
+const UDP_SESSION_TIMEOUT: Duration = Duration::from_secs(60);
+/// Datagram size cap — the practical UDP payload limit is 64 KiB.
+const UDP_DATAGRAM_CAP: usize = 65_536;
+
+/// A running UDP forwarder: one local UDP listener, one upstream socket per
+/// client address ("session"), each released after `UDP_SESSION_TIMEOUT`
+/// without traffic. Counters and stats events mirror the TCP forwarder.
+pub struct UdpForwarder {
+    /// `None` only in unit tests: emits become no-ops.
+    app: Option<AppHandle>,
+    tunnel_id: String,
+    port: u16,
+    /// The real target host:port datagrams are relayed to (may be an intranet
+    /// machine reachable from this one).
+    upstream_host: String,
+    upstream_port: u16,
+    allowlist: Arc<Vec<String>>,
+    bytes_in: Arc<AtomicU64>,
+    bytes_out: Arc<AtomicU64>,
+    /// Live sessions (one per client address).
+    sessions: Arc<AtomicU32>,
+    stop_tx: watch::Sender<bool>,
+    task: Mutex<Option<JoinHandle<()>>>,
+    /// Live per-session reply tasks; aborted by `stop()`.
+    replies: Mutex<HashMap<u64, JoinHandle<()>>>,
+    next_reply_id: AtomicU64,
+    final_stats_emitted: AtomicBool,
+}
+
+impl UdpForwarder {
+    /// Start a UDP forwarder for `cfg`; returns the local port the tunnel
+    /// binary must send to.
+    pub async fn start(app: AppHandle, cfg: TunnelConfig) -> Result<(Arc<Self>, u16), String> {
+        Self::spawn(Some(app), cfg).await
+    }
+
+    async fn spawn(app: Option<AppHandle>, cfg: TunnelConfig) -> Result<(Arc<Self>, u16), String> {
+        let listener = tokio::net::UdpSocket::bind("127.0.0.1:0")
+            .await
+            .map_err(|e| format!("udp forwarder: 绑定本地监听端口失败 (failed to bind): {e}"))?;
+        let port = listener
+            .local_addr()
+            .map_err(|e| format!("udp forwarder: failed to read local addr: {e}"))?
+            .port();
+        let listener = Arc::new(listener);
+
+        let (stop_tx, stop_rx) = watch::channel(false);
+        let fwd = Arc::new(Self {
+            app,
+            tunnel_id: cfg.id.clone(),
+            port,
+            upstream_host: cfg.local_host.clone(),
+            upstream_port: cfg.local_port,
+            allowlist: Arc::new(cfg.ip_allowlist.clone()),
+            bytes_in: Arc::new(AtomicU64::new(0)),
+            bytes_out: Arc::new(AtomicU64::new(0)),
+            sessions: Arc::new(AtomicU32::new(0)),
+            stop_tx,
+            task: Mutex::new(None),
+            replies: Mutex::new(HashMap::new()),
+            next_reply_id: AtomicU64::new(0),
+            final_stats_emitted: AtomicBool::new(false),
+        });
+
+        let task = tokio::spawn(udp_forward_loop(listener, fwd.clone(), stop_rx));
+        *fwd.task.lock().unwrap_or_else(|e| e.into_inner()) = Some(task);
+        Ok((fwd, port))
+    }
+
+    pub async fn stop(&self) {
+        let _ = self.stop_tx.send(true);
+        let task = self.task.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if let Some(task) = task {
+            let _ = timeout(STOP_DRAIN_TIMEOUT, task).await;
+        }
+        let replies: Vec<JoinHandle<()>> = self
+            .replies
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .drain()
+            .map(|(_, task)| task)
+            .collect();
+        for task in replies {
+            task.abort();
+        }
+        if !self.final_stats_emitted.swap(true, Ordering::SeqCst) {
+            self.emit_stats();
+        }
+    }
+
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+
+    pub fn bytes_in(&self) -> u64 {
+        self.bytes_in.load(Ordering::SeqCst)
+    }
+
+    pub fn bytes_out(&self) -> u64 {
+        self.bytes_out.load(Ordering::SeqCst)
+    }
+
+    pub fn upstream_matches(&self, host: &str, port: u16) -> bool {
+        self.upstream_host == host && self.upstream_port == port
+    }
+
+    pub fn is_stopped(&self) -> bool {
+        *self.stop_tx.borrow()
+    }
+
+    pub fn reset_counters(&self) {
+        self.bytes_in.store(0, Ordering::SeqCst);
+        self.bytes_out.store(0, Ordering::SeqCst);
+    }
+
+    fn counters(&self) -> (u64, u64, u32) {
+        (
+            self.bytes_in.load(Ordering::SeqCst),
+            self.bytes_out.load(Ordering::SeqCst),
+            self.sessions.load(Ordering::SeqCst),
+        )
+    }
+
+    fn emit_stats(&self) {
+        let Some(app) = &self.app else { return };
+        let (bytes_in, bytes_out, conn_active) = self.counters();
+        let _ = app.emit(
+            TUNNEL_STATS_EVENT,
+            TunnelStats {
+                tunnel_id: self.tunnel_id.clone(),
+                bytes_in,
+                bytes_out,
+                conn_active,
+            },
+        );
+    }
+}
+
+/// One UDP session: relay datagrams between one client address and the
+/// upstream target until idle for `UDP_SESSION_TIMEOUT`.
+async fn udp_reply_loop(
+    fwd: Arc<UdpForwarder>,
+    listener: Arc<tokio::net::UdpSocket>,
+    peer: SocketAddr,
+    upstream: Arc<tokio::net::UdpSocket>,
+) {
+    let mut buf = vec![0u8; UDP_DATAGRAM_CAP];
+    loop {
+        match timeout(UDP_SESSION_TIMEOUT, upstream.recv(&mut buf)).await {
+            Ok(Ok(n)) => {
+                if listener.send_to(&buf[..n], peer).await.is_ok() {
+                    fwd.bytes_out.fetch_add(n as u64, Ordering::SeqCst);
+                }
+            }
+            Ok(Err(_)) | Err(_) => break, // upstream error or idle timeout
+        }
+    }
+}
+
+/// Main UDP loop: accept datagrams, route them into per-client sessions.
+async fn udp_forward_loop(
+    listener: Arc<tokio::net::UdpSocket>,
+    fwd: Arc<UdpForwarder>,
+    mut stop_rx: watch::Receiver<bool>,
+) {
+    let sessions: Arc<Mutex<HashMap<SocketAddr, Arc<tokio::net::UdpSocket>>>> =
+        Arc::new(Mutex::new(HashMap::new()));
+    let mut buf = vec![0u8; UDP_DATAGRAM_CAP];
+    loop {
+        let received = tokio::select! {
+            res = listener.recv_from(&mut buf) => res,
+            _ = wait_for_stop(&mut stop_rx) => break,
+        };
+        let (n, peer) = match received {
+            Ok(pair) => pair,
+            Err(e) => {
+                eprintln!("[pier] udp forwarder recv error: {e}");
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                continue;
+            }
+        };
+        if !ip_allowed(peer.ip(), &fwd.allowlist) {
+            continue; // denied by the allowlist: datagram dropped
+        }
+
+        // Get or create the session socket for this client address. The map
+        // lock must never span an `.await` (std guards are not Send), so the
+        // lookup, the socket setup and the insert are separate lock windows —
+        // safe because this loop is the only writer and runs sequentially.
+        let upstream = {
+            let existing = sessions
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(&peer)
+                .cloned();
+            match existing {
+                Some(sock) => sock,
+                None => {
+                    let Ok(sock) = tokio::net::UdpSocket::bind("0.0.0.0:0").await else {
+                        continue;
+                    };
+                    if sock
+                        .connect((fwd.upstream_host.as_str(), fwd.upstream_port))
+                        .await
+                        .is_err()
+                    {
+                        continue; // unreachable target: drop the datagram
+                    }
+                    let sock = Arc::new(sock);
+                    let inserted = {
+                        let mut map = sessions.lock().unwrap_or_else(|e| e.into_inner());
+                        let is_new = !map.contains_key(&peer);
+                        map.insert(peer, sock.clone());
+                        is_new
+                    };
+                    if inserted {
+                        fwd.sessions.fetch_add(1, Ordering::SeqCst);
+                    }
+                    // The reply task owns clones of everything it touches and
+                    // removes its own session on exit (unless a newer session
+                    // for the same peer already replaced it).
+                    let reply_fwd = fwd.clone();
+                    let reply_listener = listener.clone();
+                    let reply_sock = sock.clone();
+                    let reply_peer = peer;
+                    let reply_sessions = sessions.clone();
+                    let id = fwd.next_reply_id.fetch_add(1, Ordering::Relaxed);
+                    let task = tokio::spawn(async move {
+                        udp_reply_loop(
+                            reply_fwd.clone(),
+                            reply_listener,
+                            reply_peer,
+                            reply_sock.clone(),
+                        )
+                        .await;
+                        let mut map = reply_sessions.lock().unwrap_or_else(|e| e.into_inner());
+                        if map.get(&reply_peer).map(|s| Arc::ptr_eq(s, &reply_sock)) == Some(true)
+                        {
+                            map.remove(&reply_peer);
+                            reply_fwd.sessions.fetch_sub(1, Ordering::SeqCst);
+                        }
+                    });
+                    // The task may already have finished (and removed itself)
+                    // between spawn and lock; don't keep a stale entry around.
+                    let mut replies = fwd.replies.lock().unwrap_or_else(|e| e.into_inner());
+                    if !task.is_finished() {
+                        replies.insert(id, task);
+                    }
+                    sock
+                }
+            }
+        };
+        if upstream.send(&buf[..n]).await.is_ok() {
+            fwd.bytes_in.fetch_add(n as u64, Ordering::SeqCst);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Transport-agnostic handle
+// ---------------------------------------------------------------------------
+
+/// The engine's handle to whichever transport a tunnel forwards: raw TCP
+/// (HTTP + TCP tunnels) or UDP (typed-port tunnels). The common surface is
+/// everything engine.rs touches; byte counters feed the same stats event.
+#[derive(Clone)]
+pub enum TunnelForwarder {
+    Tcp(Arc<Forwarder>),
+    Udp(Arc<UdpForwarder>),
+}
+
+impl TunnelForwarder {
+    /// The local port the tunnel binary must dial.
+    pub fn port(&self) -> u16 {
+        match self {
+            TunnelForwarder::Tcp(f) => f.port(),
+            TunnelForwarder::Udp(f) => f.port(),
+        }
+    }
+
+    pub async fn stop(&self) {
+        match self {
+            TunnelForwarder::Tcp(f) => f.stop().await,
+            TunnelForwarder::Udp(f) => f.stop().await,
+        }
+    }
+
+    pub fn upstream_matches(&self, host: &str, port: u16) -> bool {
+        match self {
+            TunnelForwarder::Tcp(f) => f.upstream_matches(host, port),
+            TunnelForwarder::Udp(f) => f.upstream_matches(host, port),
+        }
+    }
+
+    pub fn is_stopped(&self) -> bool {
+        match self {
+            TunnelForwarder::Tcp(f) => f.is_stopped(),
+            TunnelForwarder::Udp(f) => f.is_stopped(),
+        }
+    }
+
+    pub fn reset_counters(&self) {
+        match self {
+            TunnelForwarder::Tcp(f) => f.reset_counters(),
+            TunnelForwarder::Udp(f) => f.reset_counters(),
+        }
+    }
+
+    pub fn bytes_in(&self) -> u64 {
+        match self {
+            TunnelForwarder::Tcp(f) => f.bytes_in(),
+            TunnelForwarder::Udp(f) => f.bytes_in(),
+        }
+    }
+
+    pub fn bytes_out(&self) -> u64 {
+        match self {
+            TunnelForwarder::Tcp(f) => f.bytes_out(),
+            TunnelForwarder::Udp(f) => f.bytes_out(),
         }
     }
 }
@@ -1034,6 +1363,79 @@ mod tests {
             Ok(Ok(0)) | Ok(Err(_)) => {}
             other => panic!("client connection not closed on unreachable service: {other:?}"),
         }
+        assert_eq!(fwd.bytes_in(), 0);
+        fwd.stop().await;
+    }
+
+    // --- UDP forwarder --------------------------------------------------------
+
+    /// Plain UDP echo server: every datagram echoes back to its sender.
+    async fn udp_echo_server() -> (u16, tokio::task::JoinHandle<()>) {
+        let sock = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let port = sock.local_addr().unwrap().port();
+        let handle = tokio::spawn(async move {
+            let mut buf = [0u8; 2048];
+            loop {
+                if let Ok((n, peer)) = sock.recv_from(&mut buf).await {
+                    let _ = sock.send_to(&buf[..n], peer).await;
+                }
+            }
+        });
+        (port, handle)
+    }
+
+    fn udp_cfg(local_host: &str, local_port: u16) -> TunnelConfig {
+        let mut c = cfg(TunnelType::Udp, local_port);
+        c.local_host = local_host.into();
+        c
+    }
+
+    #[tokio::test]
+    async fn udp_forwarder_relays_and_counts() {
+        let (service_port, _echo) = udp_echo_server().await;
+        let (fwd, port) = UdpForwarder::spawn(None, udp_cfg("127.0.0.1", service_port))
+            .await
+            .unwrap();
+        assert!(fwd.upstream_matches("127.0.0.1", service_port));
+
+        let client = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        client
+            .send_to(b"ping-udp", ("127.0.0.1", port))
+            .await
+            .unwrap();
+        let mut buf = [0u8; 32];
+        let (n, _) = timeout(Duration::from_secs(3), client.recv_from(&mut buf))
+            .await
+            .expect("no echo within 3s")
+            .unwrap();
+        assert_eq!(&buf[..n], b"ping-udp");
+        assert!(fwd.bytes_in() >= 8, "bytes_in = {}", fwd.bytes_in());
+        assert!(fwd.bytes_out() >= 8, "bytes_out = {}", fwd.bytes_out());
+
+        // stop() is idempotent and the forwarder reports stopped.
+        fwd.stop().await;
+        fwd.stop().await;
+        assert!(fwd.is_stopped());
+    }
+
+    #[tokio::test]
+    async fn udp_forwarder_allowlist_drops_datagrams() {
+        let (service_port, _echo) = udp_echo_server().await;
+        let mut c = udp_cfg("127.0.0.1", service_port);
+        // Tunnel clients always originate from loopback; a list without it
+        // exercises the deny path deterministically.
+        c.ip_allowlist = vec!["10.0.0.0/8".into()];
+        let (fwd, port) = UdpForwarder::spawn(None, c).await.unwrap();
+
+        let client = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        client
+            .send_to(b"nope", ("127.0.0.1", port))
+            .await
+            .unwrap();
+        // Nothing may echo back within the window and nothing is counted.
+        let mut buf = [0u8; 8];
+        let res = timeout(Duration::from_millis(400), client.recv_from(&mut buf)).await;
+        assert!(res.is_err(), "denied datagram must not be relayed");
         assert_eq!(fwd.bytes_in(), 0);
         fwd.stop().await;
     }

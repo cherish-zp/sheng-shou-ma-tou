@@ -63,6 +63,8 @@ export function AddServerDialog({ open, onOpenChange, onAdded }: AddServerDialog
   const [authKind, setAuthKind] = useState<AuthKind>("password");
   const [secret, setSecret] = useState("");
   const [subdomainHost, setSubdomainHost] = useState("");
+  const [proxyPortStart, setProxyPortStart] = useState("");
+  const [proxyPortEnd, setProxyPortEnd] = useState("");
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [ports, setPorts] = useState<Record<PortField["key"], string>>({
     frpsBindPort: "7000",
@@ -83,6 +85,8 @@ export function AddServerDialog({ open, onOpenChange, onAdded }: AddServerDialog
     setAuthKind("password");
     setSecret("");
     setSubdomainHost("");
+    setProxyPortStart("");
+    setProxyPortEnd("");
     setAdvancedOpen(false);
     setPorts({ frpsBindPort: "7000", frpsVhostHttpPort: "8080", frpsVhostHttpsPort: "8443", frpsDashboardPort: "7500" });
     setSubmitting(false);
@@ -121,6 +125,18 @@ export function AddServerDialog({ open, onOpenChange, onAdded }: AddServerDialog
       if (httpsPort !== null) input.frpsVhostHttpsPort = httpsPort;
       if (dashboardPort !== null) input.frpsDashboardPort = dashboardPort;
       if (subdomainHost.trim()) input.subdomainHost = subdomainHost.trim();
+      // Optional TCP/UDP forwarding port range: blank = unrestricted.
+      const proxyStart = parsePort(proxyPortStart);
+      const proxyEnd = parsePort(proxyPortEnd);
+      if (proxyStart !== null && proxyEnd !== null) {
+        if (proxyStart > proxyEnd) {
+          toast.error(t("servers.form.proxyPortInvalid"));
+          setSubmitting(false);
+          return;
+        }
+        input.frpsProxyPortStart = proxyStart;
+        input.frpsProxyPortEnd = proxyEnd;
+      }
 
       const server = await api.addServer(input);
       toast.success(t("servers.form.success"));
@@ -299,6 +315,36 @@ export function AddServerDialog({ open, onOpenChange, onAdded }: AddServerDialog
                       {t("servers.form.subdomainHostHint", { host: subdomainHost.trim() })}
                     </p>
                   ) : null}
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label className="text-xs text-muted-foreground">
+                    {t("servers.form.proxyPortRange")}
+                  </Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input
+                      id="server-proxy-port-start"
+                      type="number"
+                      min={1}
+                      max={65535}
+                      value={proxyPortStart}
+                      onChange={(e) => setProxyPortStart(e.target.value)}
+                      placeholder={t("servers.form.proxyPortStart")}
+                      className="font-mono"
+                    />
+                    <Input
+                      id="server-proxy-port-end"
+                      type="number"
+                      min={1}
+                      max={65535}
+                      value={proxyPortEnd}
+                      onChange={(e) => setProxyPortEnd(e.target.value)}
+                      placeholder={t("servers.form.proxyPortEnd")}
+                      className="font-mono"
+                    />
+                  </div>
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    {t("servers.form.proxyPortHint")}
+                  </p>
                 </div>
               </div>
             ) : null}

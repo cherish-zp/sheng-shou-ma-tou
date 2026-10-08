@@ -250,6 +250,8 @@ mod tests {
             frps_vhost_https_port: 8443,
             frps_dashboard_port: 7500,
             subdomain_host: None,
+            frps_proxy_port_start: None,
+            frps_proxy_port_end: None,
             deployed: false,
             frps_version: None,
             created_at: "2026-10-06T00:00:00+00:00".into(),

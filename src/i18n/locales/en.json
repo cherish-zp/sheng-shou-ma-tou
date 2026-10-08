@@ -84,7 +84,7 @@
     "formTitle": "Service details",
     "name": "Name",
     "namePlaceholder": "Leave empty to auto-name as port-{{port}}",
-    "localHost": "Local host",
+    "localHost": "Target host",
     "localPort": "Local port",
     "portPlaceholder": "e.g. 3000",
     "channel": "Channel",
@@ -179,7 +179,12 @@
       "success": "Fixed-hostname tunnel “{{name}}” started",
       "needLocalFirst": "Fill in a valid local host and port above before linking a fixed hostname."
     },
-    "backendMappingCfNamedEdit": "Fixed hostname {{hostname}} cannot be changed. You can edit the local service address, port and access control — changes apply on the next start."
+    "backendMappingCfNamedEdit": "Fixed hostname {{hostname}} cannot be changed. You can edit the local service address, port and access control — changes apply on the next start.",
+    "udpTitle": "UDP port",
+    "udpDescription": "Expose a target machine's UDP port to the public internet (self-hosted channel).",
+    "localHostHint": "Forwarding target: 127.0.0.1 (this machine) by default. To reach another intranet machine (e.g. MySQL at 192.168.1.10), enter its IP directly.",
+    "publicExposureWarning": "This port will be open to the public internet without an app-level password. Make sure the target service (e.g. MySQL) uses strong credentials; the IP allowlist only filters the local forwarder and cannot restrict public sources.",
+    "udpNeedsServer": "UDP forwarding requires the self-hosted channel (the quick channel carries TCP only): add and deploy a server on the Servers page first."
   },
   "logs": {
     "title": "Logs",
@@ -254,7 +259,12 @@
       "secretRequired": "Enter a password or a key path",
       "portRequired": "Enter a port between 1 and 65535",
       "success": "Server added. You can deploy it now.",
-      "failed": "Failed to add server"
+      "failed": "Failed to add server",
+      "proxyPortRange": "Forwarding port range (TCP/UDP)",
+      "proxyPortStart": "Start port",
+      "proxyPortEnd": "End port",
+      "proxyPortHint": "Public port range for TCP/UDP forwarding: opened in the firewall and restricted via frps allowPorts on deploy; leave empty for no restriction.",
+      "proxyPortInvalid": "Invalid port range: needs 1 ≤ start ≤ end ≤ 65535"
     }
   },
   "deploy": {

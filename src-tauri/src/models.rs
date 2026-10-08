@@ -8,6 +8,10 @@ use serde::{Deserialize, Serialize};
 pub enum TunnelType {
     Http,
     Tcp,
+    /// Raw UDP port forwarding. Only the Frp backend carries UDP (bore is
+    /// TCP-only and Cloudflare tunnels have no plain-UDP ingress); the local
+    /// forwarder relays datagrams to the tunnel's target host.
+    Udp,
 }
 
 /// Access control attached to a tunnel. Traffic reaches the local service
@@ -69,7 +73,7 @@ pub struct TunnelConfig {
     /// Frp HTTP tunnels only: subdomain under the server's `subdomainHost`.
     #[serde(default)]
     pub subdomain: Option<String>,
-    /// Frp TCP tunnels only: public port allocated on the server.
+    /// Frp TCP/UDP tunnels only: public port allocated on the server.
     #[serde(default)]
     pub remote_port: Option<u16>,
     /// HTTP Basic Auth for this tunnel; password in the OS keychain.
@@ -176,6 +180,13 @@ pub struct ServerConfig {
     /// `mydomain.com` so tunnels can claim `foo.mydomain.com`.
     #[serde(default)]
     pub subdomain_host: Option<String>,
+    /// Optional TCP/UDP forwarding port range for proxy tunnels: the deploy
+    /// step opens it in the firewall and frps `allowPorts` restricts proxies
+    /// to it. `None` = unrestricted (the default for pre-existing servers).
+    #[serde(default)]
+    pub frps_proxy_port_start: Option<u16>,
+    #[serde(default)]
+    pub frps_proxy_port_end: Option<u16>,
     #[serde(default)]
     pub deployed: bool,
     #[serde(default)]
@@ -217,6 +228,10 @@ pub struct ServerInput {
     pub frps_dashboard_port: Option<u16>,
     #[serde(default)]
     pub subdomain_host: Option<String>,
+    #[serde(default)]
+    pub frps_proxy_port_start: Option<u16>,
+    #[serde(default)]
+    pub frps_proxy_port_end: Option<u16>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

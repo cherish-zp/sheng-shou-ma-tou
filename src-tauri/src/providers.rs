@@ -186,6 +186,7 @@ pub async fn prepare_frpc_config(
 ///
 /// URL shapes:
 /// * tcp  -> `{server.host}:{remote_port}`
+/// * udp  -> `udp://{server.host}:{remote_port}`
 /// * http -> `http://{subdomain}.{server.subdomainHost}:{vhost_http_port}`;
 ///   when the server has no subdomainHost the endpoint degrades to
 ///   `http://{server.host}:{vhost_http_port}`; when `cfg.subdomain` already
@@ -205,16 +206,40 @@ pub fn build_frpc_toml(
 
     let name = toml_escape(&cfg.id);
     let (proxy_type, public_url) = match cfg.tunnel_type {
-        TunnelType::Tcp => {
+        TunnelType::Tcp | TunnelType::Udp => {
             let remote_port = cfg.remote_port.ok_or_else(|| {
-                "TCP 隧道缺少远程端口 (remotePort is required for frp tcp tunnels)".to_string()
+                format!(
+                    "{} 隧道缺少远程端口 (remotePort is required for frp {} tunnels)",
+                    if cfg.tunnel_type == TunnelType::Udp {
+                        "UDP"
+                    } else {
+                        "TCP"
+                    },
+                    if cfg.tunnel_type == TunnelType::Udp {
+                        "udp"
+                    } else {
+                        "tcp"
+                    }
+                )
             })?;
+            let scheme = if cfg.tunnel_type == TunnelType::Udp {
+                "udp://"
+            } else {
+                ""
+            };
             let url = if remote_port == 0 {
                 None
             } else {
-                Some(format!("{}:{}", server.host, remote_port))
+                Some(format!("{scheme}{}:{}", server.host, remote_port))
             };
-            ("tcp", url)
+            (
+                if cfg.tunnel_type == TunnelType::Udp {
+                    "udp"
+                } else {
+                    "tcp"
+                },
+                url,
+            )
         }
         TunnelType::Http => {
             let sub = cfg
@@ -251,7 +276,7 @@ pub fn build_frpc_toml(
     s.push_str(&format!("localIP = \"{}\"\n", toml_escape(&cfg.local_host)));
     s.push_str(&format!("localPort = {}\n", cfg.local_port));
     match cfg.tunnel_type {
-        TunnelType::Tcp => {
+        TunnelType::Tcp | TunnelType::Udp => {
             if let Some(remote_port) = cfg.remote_port {
                 s.push_str(&format!("remotePort = {remote_port}\n"));
             }
@@ -884,6 +909,8 @@ mod tests {
             frps_vhost_https_port: 8443,
             frps_dashboard_port: 7500,
             subdomain_host: Some("mydomain.com".into()),
+            frps_proxy_port_start: None,
+            frps_proxy_port_end: None,
             deployed: true,
             frps_version: None,
             created_at: String::new(),
@@ -982,6 +1009,30 @@ mod tests {
     #[test]
     fn frpc_toml_requires_remote_port_for_tcp() {
         let cfg = frp_cfg(TunnelType::Tcp); // remote_port = None
+        assert!(build_frpc_toml(&cfg, &frps(), "secret").is_err());
+    }
+
+    #[test]
+    fn frpc_toml_udp_content_and_endpoint() {
+        let mut cfg = frp_cfg(TunnelType::Udp);
+        cfg.remote_port = Some(17002);
+        cfg.local_host = "192.168.1.10".into();
+        let (text, url) = build_frpc_toml(&cfg, &frps(), "secret").expect("udp toml");
+        for expected in [
+            "type = \"udp\"",
+            "localIP = \"192.168.1.10\"",
+            "localPort = 9000",
+            "remotePort = 17002",
+        ] {
+            assert!(text.contains(expected), "missing {expected:?} in:\n{text}");
+        }
+        assert!(!text.contains("subdomain"));
+        assert_eq!(url.as_deref(), Some("udp://vps.example.com:17002"));
+    }
+
+    #[test]
+    fn frpc_toml_requires_remote_port_for_udp() {
+        let cfg = frp_cfg(TunnelType::Udp); // remote_port = None
         assert!(build_frpc_toml(&cfg, &frps(), "secret").is_err());
     }
 

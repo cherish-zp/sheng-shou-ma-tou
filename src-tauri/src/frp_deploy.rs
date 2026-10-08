@@ -685,6 +685,9 @@ async fn step_firewall(
     let ports = distinct_ports(server);
     let mut warnings = Vec::new();
     let mut applied: Option<&'static str> = None;
+    // Typed-port (TCP/UDP) tunnels claim remote ports inside this range; the
+    // firewall must admit both protocols for it.
+    let proxy_range = proxy_port_range(server);
 
     let has_ufw = ssh
         .run("command -v ufw >/dev/null 2>&1 && echo yes || echo no")
@@ -703,6 +706,15 @@ async fn step_firewall(
                 let (code, _, err) = ssh.run_sudo(&format!("ufw allow {port}/tcp")).await?;
                 if code != 0 {
                     warnings.push(format!("ufw 放行 {port}/tcp 失败：{err}"));
+                }
+            }
+            if let Some((start, end)) = proxy_range {
+                for proto in ["tcp", "udp"] {
+                    let (code, _, err) =
+                        ssh.run_sudo(&format!("ufw allow {start}:{end}/{proto}")).await?;
+                    if code != 0 {
+                        warnings.push(format!("ufw 放行 {start}:{end}/{proto} 失败：{err}"));
+                    }
                 }
             }
             applied = Some("ufw");
@@ -729,6 +741,20 @@ async fn step_firewall(
                         .await?;
                     if code != 0 {
                         warnings.push(format!("firewalld 放行 {port}/tcp 失败：{err}"));
+                    }
+                }
+                if let Some((start, end)) = proxy_range {
+                    for proto in ["tcp", "udp"] {
+                        let (code, _, err) = ssh
+                            .run_sudo(&format!(
+                                "firewall-cmd --permanent --add-port={start}-{end}/{proto}"
+                            ))
+                            .await?;
+                        if code != 0 {
+                            warnings.push(format!(
+                                "firewalld 放行 {start}-{end}/{proto} 失败：{err}"
+                            ));
+                        }
                     }
                 }
                 if let Err(e) = ssh.run_sudo("firewall-cmd --reload").await {
@@ -906,6 +932,13 @@ fn distinct_ports(server: &ServerConfig) -> Vec<u16> {
     ports
 }
 
+/// The configured TCP/UDP forwarding port range, when both bounds are set and
+/// sane. Proxy tunnels (remotePort) live inside it.
+pub(crate) fn proxy_port_range(server: &ServerConfig) -> Option<(u16, u16)> {
+    let (start, end) = (server.frps_proxy_port_start?, server.frps_proxy_port_end?);
+    (start > 0 && start <= end).then_some((start, end))
+}
+
 /// The distinct ports joined with commas, for progress messages.
 fn ports_list(server: &ServerConfig) -> String {
     distinct_ports(server)
@@ -919,10 +952,14 @@ fn ports_list(server: &ServerConfig) -> String {
 /// detected cloud host: Pier can open the in-VM firewall but not the
 /// provider's security group.
 fn cloud_security_group_hint(server: &ServerConfig, cloud: &str) -> String {
-    format!(
+    let mut hint = format!(
         "检测到{cloud}云主机：请到云控制台安全组放行 TCP {}",
         ports_list(server)
-    )
+    );
+    if let Some((start, end)) = proxy_port_range(server) {
+        hint.push_str(&format!("；转发端口段请放行 TCP+UDP {start}-{end}"));
+    }
+    hint
 }
 
 /// uname -m -> frp asset arch.
@@ -994,6 +1031,13 @@ pub(crate) fn build_frps_toml(
         .filter(|h| !h.is_empty())
     {
         t.push_str(&format!("subdomainHost = {}\n", toml_str(host)));
+    }
+    // Typed-port (TCP/UDP) tunnels: restrict client remotePort claims to the
+    // configured forwarding range when one is set.
+    if let Some((start, end)) = proxy_port_range(server) {
+        t.push_str("\n[[allowPorts]]\n");
+        t.push_str(&format!("start = {}\n", start));
+        t.push_str(&format!("end = {}\n", end));
     }
     t.push_str("\n[auth]\n");
     t.push_str(&format!("token = {}\n", toml_str(token)));
@@ -1205,6 +1249,8 @@ mod tests {
             frps_vhost_https_port: 8443,
             frps_dashboard_port: 7500,
             subdomain_host: Some("tunnel.example.com".into()),
+            frps_proxy_port_start: None,
+            frps_proxy_port_end: None,
             deployed: false,
             frps_version: None,
             created_at: "2026-10-06T00:00:00+00:00".into(),
@@ -1237,6 +1283,37 @@ mod tests {
         // A quote inside the value must not terminate the TOML string.
         assert!(toml.contains("token = \"a\\\"b\\\\c\""));
         assert!(toml.contains("password = \"d\""));
+    }
+
+    #[test]
+    fn frps_toml_writes_allow_ports_range_only_when_set() {
+        // Without a range: no allowPorts section (backwards compatible).
+        let base = build_frps_toml(&sample_server(), "tok", "pw");
+        assert!(!base.contains("allowPorts"));
+        // With a range: the frps [[allowPorts]] table restricts client
+        // remotePort claims to it.
+        let mut server = sample_server();
+        server.frps_proxy_port_start = Some(20000);
+        server.frps_proxy_port_end = Some(21000);
+        let toml = build_frps_toml(&server, "tok", "pw");
+        assert!(toml.contains("[[allowPorts]]"));
+        assert!(toml.contains("start = 20000"));
+        assert!(toml.contains("end = 21000"));
+    }
+
+    #[test]
+    fn proxy_port_range_rejects_inverted_or_zero_bounds() {
+        let mut server = sample_server();
+        assert_eq!(proxy_port_range(&server), None);
+        server.frps_proxy_port_start = Some(21000);
+        server.frps_proxy_port_end = Some(20000);
+        assert_eq!(proxy_port_range(&server), None);
+        server.frps_proxy_port_start = Some(0);
+        server.frps_proxy_port_end = Some(21000);
+        assert_eq!(proxy_port_range(&server), None);
+        server.frps_proxy_port_start = Some(20000);
+        server.frps_proxy_port_end = Some(20000);
+        assert_eq!(proxy_port_range(&server), Some((20000, 20000)));
     }
 
     #[test]

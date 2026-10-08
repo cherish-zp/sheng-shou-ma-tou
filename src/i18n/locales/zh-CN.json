@@ -84,7 +84,7 @@
     "formTitle": "填写服务信息",
     "name": "名称",
     "namePlaceholder": "留空则自动命名为 port-{{port}}",
-    "localHost": "本地地址",
+    "localHost": "目标主机",
     "localPort": "本地端口",
     "portPlaceholder": "例如 3000",
     "channel": "通道",
@@ -179,7 +179,12 @@
       "success": "固定域名隧道「{{name}}」已启动",
       "needLocalFirst": "请先在上方填写有效的本地地址和端口，再绑定固定域名。"
     },
-    "backendMappingCfNamedEdit": "固定域名 {{hostname}} 不可更改；可修改本地服务地址、端口与访问控制，保存后自动生效。"
+    "backendMappingCfNamedEdit": "固定域名 {{hostname}} 不可更改；可修改本地服务地址、端口与访问控制，保存后自动生效。",
+    "udpTitle": "UDP 端口",
+    "udpDescription": "把目标机器的 UDP 端口转发到公网（需自建服务器通道）。",
+    "localHostHint": "转发目标：默认本机 127.0.0.1；要转发到内网其他机器（如 192.168.1.10 的 MySQL 3306），直接填它的内网 IP。",
+    "publicExposureWarning": "该端口将对公网开放且没有应用层密码：请确保目标服务（如 MySQL）使用强密码；IP 白名单只作用于本机转发器，无法限制公网来源。",
+    "udpNeedsServer": "UDP 端口转发需要自建服务器通道（快速通道不支持 UDP）：先在“服务器”页添加并部署一台云服务器。"
   },
   "logs": {
     "title": "运行日志",
@@ -254,7 +259,12 @@
       "secretRequired": "请输入密码或私钥路径",
       "portRequired": "请输入 1 - 65535 之间的端口号",
       "success": "服务器已添加，可以直接部署了",
-      "failed": "添加服务器失败"
+      "failed": "添加服务器失败",
+      "proxyPortRange": "转发端口段（TCP/UDP）",
+      "proxyPortStart": "起始端口",
+      "proxyPortEnd": "结束端口",
+      "proxyPortHint": "TCP/UDP 端口转发的公网端口范围：部署时自动放行防火墙并限制 frps 只能用这段；留空 = 不限制。",
+      "proxyPortInvalid": "转发端口段无效：需 1 ≤ 起始 ≤ 结束 ≤ 65535"
     }
   },
   "deploy": {

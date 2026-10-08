@@ -1,7 +1,7 @@
 // Tunnel domain types — the single source of truth for the
 // frontend <-> Rust contract. Keep in sync with src-tauri/src/models.rs.
 
-export type TunnelType = "http" | "tcp";
+export type TunnelType = "http" | "tcp" | "udp";
 
 export type Backend = "cloudflare" | "bore" | "frp" | "cloudflareNamed";
 
@@ -32,7 +32,7 @@ export interface TunnelConfig {
   serverId?: string | null;
   /** Frp HTTP tunnels only: subdomain under the server's subdomainHost. */
   subdomain?: string | null;
-  /** Frp TCP tunnels only: public port allocated on the server. */
+  /** Frp TCP/UDP tunnels only: public port allocated on the server. */
   remotePort?: number | null;
   /** HTTP Basic Auth for this tunnel; password set via setTunnelAuth. */
   auth?: TunnelAuth | null;
@@ -88,6 +88,10 @@ export interface ServerConfig {
   frpsVhostHttpsPort: number;
   frpsDashboardPort: number;
   subdomainHost: string | null;
+  /** Optional TCP/UDP forwarding port range opened in the firewall and
+   * enforced via frps allowPorts; null = unrestricted. */
+  frpsProxyPortStart: number | null;
+  frpsProxyPortEnd: number | null;
   deployed: boolean;
   frpsVersion: string | null;
   createdAt: string;
@@ -106,6 +110,8 @@ export interface ServerInput {
   frpsVhostHttpsPort?: number;
   frpsDashboardPort?: number;
   subdomainHost?: string | null;
+  frpsProxyPortStart?: number;
+  frpsProxyPortEnd?: number;
 }
 
 export interface ServerStatus {

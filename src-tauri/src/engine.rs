@@ -41,8 +41,8 @@ use tokio::sync::{oneshot, Notify};
 
 use crate::binman;
 use crate::cloudflare;
-use crate::forwarder::Forwarder;
-use crate::models::{Backend, TunnelConfig, TunnelState, TunnelStatus};
+use crate::forwarder::{Forwarder, TunnelForwarder};
+use crate::models::{Backend, TunnelConfig, TunnelState, TunnelStatus, TunnelType};
 use crate::providers;
 use crate::servers_store;
 
@@ -103,8 +103,9 @@ struct TunnelHandle {
     /// This tunnel's local forwarder (stats + access control). `Some` from the
     /// first start attempt on; reused across attempts and restarts while its
     /// upstream target matches. Kept after stop so the card keeps showing the
-    /// last run's cumulative traffic.
-    forwarder: Mutex<Option<Arc<Forwarder>>>,
+    /// last run's cumulative traffic. Transport-agnostic: TCP for HTTP/TCP
+    /// tunnels, UDP for typed-port tunnels.
+    forwarder: Mutex<Option<TunnelForwarder>>,
 }
 
 impl TunnelHandle {
@@ -220,6 +221,20 @@ impl Engine {
     /// Start (or resume retrying) a tunnel. Returns the state right after
     /// kickoff (usually Starting). No-op when already active.
     pub async fn start(self: Arc<Self>, cfg: TunnelConfig) -> Result<TunnelState, String> {
+        // UDP typed-port tunnels are carried by frp only (bore is TCP-only,
+        // Cloudflare tunnels have no plain-UDP ingress) and need a remote
+        // port on the server.
+        if cfg.tunnel_type == TunnelType::Udp {
+            if cfg.backend != Backend::Frp {
+                return Err(
+                    "UDP 端口转发仅支持自建服务器通道 (UDP forwarding requires the frp backend)"
+                        .into(),
+                );
+            }
+            if cfg.remote_port.is_none() {
+                return Err("UDP 隧道缺少远程端口 (remotePort is required for udp tunnels)".into());
+            }
+        }
         let handle = self.get_or_create(&cfg.id);
         if matches!(
             handle.status(),
@@ -869,7 +884,7 @@ async fn ensure_forwarder(
     engine: &Engine,
     handle: &TunnelHandle,
     cfg: &TunnelConfig,
-) -> Result<Arc<Forwarder>, String> {
+) -> Result<TunnelForwarder, String> {
     // Bind the clone to a local FIRST: the MutexGuard temporary must be gone
     // before any `.await` (std guards are not Send).
     let existing = handle
@@ -907,10 +922,25 @@ async fn ensure_forwarder(
         None
     };
 
-    let (fwd, port) = Forwarder::start(engine.app.clone(), cfg.clone(), auth_password).await?;
+    let (fwd, port) = match cfg.tunnel_type {
+        TunnelType::Http | TunnelType::Tcp => {
+            let (fwd, port) =
+                Forwarder::start(engine.app.clone(), cfg.clone(), auth_password).await?;
+            (TunnelForwarder::Tcp(fwd), port)
+        }
+        TunnelType::Udp => {
+            let (fwd, port) = crate::forwarder::UdpForwarder::start(engine.app.clone(), cfg.clone())
+                .await?;
+            (TunnelForwarder::Udp(fwd), port)
+        }
+    };
     *handle.forwarder.lock().unwrap_or_else(|e| e.into_inner()) = Some(fwd.clone());
+    let transport = match cfg.tunnel_type {
+        TunnelType::Udp => "udp",
+        _ => "tcp",
+    };
     let line = format!(
-        "forwarder: listening on 127.0.0.1:{port} -> {}:{}",
+        "{transport} forwarder: listening on 127.0.0.1:{port} -> {}:{}",
         cfg.local_host, cfg.local_port
     );
     handle.push_log(&line);
@@ -1005,6 +1035,8 @@ mod tests {
             frps_vhost_https_port: 8443,
             frps_dashboard_port: 7500,
             subdomain_host: None,
+            frps_proxy_port_start: None,
+            frps_proxy_port_end: None,
             deployed: true,
             frps_version: None,
             created_at: String::new(),

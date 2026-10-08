@@ -7,6 +7,8 @@ import {
   Dices,
   Globe,
   Network,
+  Radio,
+  TriangleAlert,
   Waypoints,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -69,6 +71,12 @@ const TYPE_OPTIONS: Array<{
     icon: Network,
     titleKey: "add.tcpTitle",
     descKey: "add.tcpDescription",
+  },
+  {
+    type: "udp",
+    icon: Radio,
+    titleKey: "add.udpTitle",
+    descKey: "add.udpDescription",
   },
 ];
 
@@ -213,7 +221,11 @@ export function AddTunnelDialog({
   const hostValid = localHost.trim().length > 0;
 
   const selectedServer = servers.find((s) => s.id === serverId) ?? null;
-  const useFrp = !isEdit && channel === "selfhosted" && servers.length > 0;
+  // UDP typed-port tunnels are frp-only (bore is TCP-only, Cloudflare has no
+  // plain-UDP ingress), so they always ride the self-hosted channel.
+  const udpNeedsServer = !isEdit && tunnelType === "udp" && servers.length === 0;
+  const useFrp =
+    !isEdit && (channel === "selfhosted" || tunnelType === "udp") && servers.length > 0;
   const parsedRemotePort = parsePort(remotePort);
 
   // v0.2.0: fixed-hostname tier (Cloudflare named tunnel) — HTTP, quick
@@ -221,7 +233,7 @@ export function AddTunnelDialog({
   const useCfNamed =
     !isEdit && tunnelType === "http" && !useFrp && cfTier === "fixed";
   const showCfTierPicker = !isEdit && !useFrp && tunnelType === "http";
-  const showTcpCfHint = !isEdit && !useFrp && tunnelType === "tcp";
+  const showTcpCfHint = !isEdit && !useFrp && (tunnelType === "tcp" || tunnelType === "udp");
   const localTargetReady = portValid && hostValid;
 
   const authAvailable = tunnelType === "http";
@@ -230,6 +242,8 @@ export function AddTunnelDialog({
 
   function pickType(type: TunnelType) {
     setTunnelType(type);
+    // UDP rides the self-hosted channel exclusively (see udpNeedsServer).
+    if (type === "udp") setChannel("selfhosted");
     setStep(2);
   }
 
@@ -275,9 +289,9 @@ export function AddTunnelDialog({
       toast.error(t("add.serverRequired"));
       return;
     }
-    // frpc TCP proxies require an explicit remotePort, so make it mandatory
-    // on the self-hosted channel.
-    if (useFrp && tunnelType === "tcp" && parsedRemotePort === null) {
+    // frpc TCP/UDP proxies require an explicit remotePort, so make it
+    // mandatory on the self-hosted channel.
+    if (useFrp && (tunnelType === "tcp" || tunnelType === "udp") && parsedRemotePort === null) {
       setRemotePortError(true);
       return;
     }
@@ -344,7 +358,8 @@ export function AddTunnelDialog({
             ? {
                 serverId,
                 subdomain: tunnelType === "http" ? subdomain.trim() || null : null,
-                remotePort: tunnelType === "tcp" ? parsedRemotePort : null,
+                remotePort:
+                  tunnelType === "tcp" || tunnelType === "udp" ? parsedRemotePort : null,
               }
             : {}),
           ...(authActive ? { auth: nextAuth } : {}),
@@ -437,12 +452,15 @@ export function AddTunnelDialog({
           </div>
         ) : (
           <div className="flex flex-col gap-4 pt-1">
-            {/* Channel picker: quick (public relays) vs self-hosted (frp) */}
+            {/* Channel picker: quick (public relays) vs self-hosted (frp).
+                UDP has no quick channel — the picker hides it entirely. */}
             {showChannelPicker ? (
               <div className="flex flex-col gap-2">
                 <Label>{t("add.channel")}</Label>
                 <div className="inline-flex w-fit items-center gap-1 rounded-lg border bg-muted/40 p-1">
-                  {CHANNEL_OPTIONS.map(({ value, labelKey }) => (
+                  {CHANNEL_OPTIONS.filter(
+                    ({ value }) => tunnelType !== "udp" || value !== "quick",
+                  ).map(({ value, labelKey }) => (
                     <button
                       key={value}
                       type="button"
@@ -490,9 +508,36 @@ export function AddTunnelDialog({
                 </div>
               </div>
             ) : showTcpCfHint ? (
-              <p className="text-xs leading-relaxed text-muted-foreground/70">
-                {t("add.hostnameTcpHint")}
-              </p>
+              tunnelType === "udp" && udpNeedsServer ? (
+                <p className="text-xs leading-relaxed text-muted-foreground/70">
+                  {t("add.udpNeedsServer")}
+                </p>
+              ) : (
+                <p className="text-xs leading-relaxed text-muted-foreground/70">
+                  {t("add.hostnameTcpHint")}
+                </p>
+              )
+            ) : null}
+
+            {/* UDP has no quick channel: guide the user to the server flow. */}
+            {udpNeedsServer ? (
+              <div className="flex items-start gap-2.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2.5">
+                <TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-500" />
+                <p className="text-[13px] leading-relaxed text-amber-700 dark:text-amber-400">
+                  {t("add.udpNeedsServer")}
+                </p>
+              </div>
+            ) : null}
+
+            {/* Typed-port tunnels (TCP/UDP) expose the target to everyone on
+                the public relay — say so loudly, once, in the form. */}
+            {!useCfNamed && (tunnelType === "tcp" || tunnelType === "udp") ? (
+              <div className="flex items-start gap-2.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2.5">
+                <TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-500" />
+                <p className="text-[13px] leading-relaxed text-amber-700 dark:text-amber-400">
+                  {t("add.publicExposureWarning")}
+                </p>
+              </div>
             ) : null}
 
             {/* Self-hosted: pick the deployed server */}
@@ -542,6 +587,9 @@ export function AddTunnelDialog({
                   className="font-mono"
                   spellCheck={false}
                 />
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  {t("add.localHostHint")}
+                </p>
               </div>
               <div className="flex flex-col gap-2">
                 <Label htmlFor="tunnel-port">{t("add.localPort")}</Label>
@@ -587,8 +635,8 @@ export function AddTunnelDialog({
               </div>
             ) : null}
 
-            {/* Self-hosted TCP: required remote port */}
-            {useFrp && tunnelType === "tcp" ? (
+            {/* Self-hosted TCP/UDP: required remote port on the server */}
+            {useFrp && (tunnelType === "tcp" || tunnelType === "udp") ? (
               <div className="flex flex-col gap-2">
                 <Label htmlFor="tunnel-remote-port">{t("add.remotePort")}</Label>
                 <Input
