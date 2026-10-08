@@ -432,9 +432,11 @@ jobs:
                       print(f"deleted old latest.json asset {a['id']}")
                   if old:
                       time.sleep(5)  # 删除后索引短暂不一致，等一等再传
+                  # 注意：附件上传必须走 uploads.github.com（gh api 默认
+                  # api.github.com 对该路由返回 404）
                   subprocess.run(
                       ["gh", "api", "--method", "POST",
-                       f"repos/{repo}/releases/{rel2['id']}/assets?name=latest.json",
+                       f"https://uploads.github.com/repos/{repo}/releases/{rel2['id']}/assets?name=latest.json",
                        "--input", "latest.json",
                        "-H", "Content-Type: application/octet-stream"],
                       check=True, capture_output=True, text=True)
