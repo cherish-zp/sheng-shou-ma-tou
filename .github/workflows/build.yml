@@ -325,15 +325,45 @@ jobs:
       - name: Rebuild latest.json from release signatures
         run: |
           python3 - << 'PYEOF'
-          import json, os, subprocess, urllib.request
+          import json, os, subprocess, time, urllib.request
           from datetime import datetime, timezone
 
           repo = os.environ["GITHUB_REPOSITORY"]
           tag = os.environ["TAG"]
           version = tag[1:] if tag.startswith("v") else tag
+          display = "圣手码头"
+          print(f"TAG={tag!r} REPO={repo!r} version={version!r}")
 
-          rel = json.loads(subprocess.check_output(
-              ["gh", "api", f"repos/{repo}/releases/tags/{tag}"]))
+          def gh(*args, check=True):
+              return subprocess.run(["gh", "api", *args], check=check,
+                                    capture_output=True, text=True)
+
+          def get_release(attempt=1):
+              try:
+                  return json.loads(gh(f"repos/{repo}/releases/tags/{tag}").stdout)
+              except subprocess.CalledProcessError as e:
+                  if attempt >= 5:
+                      raise
+                  print(f"release lookup failed (attempt {attempt}): {e.stderr.strip()[:120]} — retrying")
+                  time.sleep(10 * attempt)
+                  return get_release(attempt + 1)
+
+          rel = get_release()
+          assets = rel["assets"]
+          print(f"release id={rel['id']} assets={len(assets)}")
+
+          # 1) 恢复被剥掉的 CJK 前缀（同 patch-release-names，幂等；失败不阻塞）
+          for a in assets:
+              name = a["name"]
+              if name[:1] in ("_", "-"):
+                  new_name = display + name
+                  try:
+                      gh("-X", "PATCH", f"repos/{repo}/releases/assets/{a['id']}",
+                         "-f", f"name={new_name}")
+                      print(f"renamed: {name!r} -> {new_name!r}")
+                      a["name"] = new_name
+                  except subprocess.CalledProcessError as e:
+                      print(f"rename skipped for {name!r}: {e.stderr.strip()[:120]}")
           assets = rel["assets"]
 
           def find(suffix):
@@ -341,6 +371,16 @@ jobs:
                   if a["name"].endswith(suffix):
                       return a
               return None
+
+          def fetch(url, attempt=1):
+              try:
+                  return urllib.request.urlopen(url, timeout=60).read().decode().strip()
+              except Exception as e:
+                  if attempt >= 4:
+                      raise
+                  print(f"fetch retry {attempt} for {url.rsplit('/', 1)[-1]}: {e}")
+                  time.sleep(10 * attempt)
+                  return fetch(url, attempt + 1)
 
           # 平台键 → 附件名后缀（同一附件可挂多个键：updater 逐个探测）
           MAPPING = [
@@ -365,8 +405,7 @@ jobs:
               sig_asset = find(a["name"] + ".sig")
               if not sig_asset:
                   raise SystemExit(f"signature missing: {a['name']}.sig")
-              sig = urllib.request.urlopen(
-                  sig_asset["browser_download_url"], timeout=60).read().decode().strip()
+              sig = fetch(sig_asset["browser_download_url"])
               platforms[key] = {"signature": sig, "url": a["browser_download_url"]}
               print(f"{key} -> {a['name']}")
 
@@ -382,19 +421,32 @@ jobs:
               "platforms": platforms,
           }
           json.dump(doc, open("latest.json", "w"), ensure_ascii=False, indent=2)
+
+          # 2) 替换 Release 上的 latest.json（先删后传，重试加固）
+          for attempt in range(1, 6):
+              try:
+                  rel2 = json.loads(gh(f"repos/{repo}/releases/tags/{tag}").stdout)
+                  old = [a for a in rel2["assets"] if a["name"] == "latest.json"]
+                  for a in old:
+                      gh("-X", "DELETE", f"repos/{repo}/releases/assets/{a['id']}")
+                      print(f"deleted old latest.json asset {a['id']}")
+                  if old:
+                      time.sleep(5)  # 删除后索引短暂不一致，等一等再传
+                  subprocess.run(
+                      ["gh", "api", "--method", "POST",
+                       f"repos/{repo}/releases/{rel2['id']}/assets?name=latest.json",
+                       "--input", "latest.json",
+                       "-H", "Content-Type: application/octet-stream"],
+                      check=True, capture_output=True, text=True)
+                  print("latest.json uploaded")
+                  break
+              except subprocess.CalledProcessError as e:
+                  print(f"replace attempt {attempt} failed: {(e.stderr or e.stdout).strip()[:200]}")
+                  if attempt >= 5:
+                      raise
+                  time.sleep(10 * attempt)
+          print("DONE")
           PYEOF
-      - name: Replace latest.json on the release
-        run: |
-          OLD_ID=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" \
-            --jq '.assets[] | select(.name == "latest.json") | .id')
-          if [ -n "$OLD_ID" ]; then
-            gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$OLD_ID"
-          fi
-          RELEASE_ID=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq .id)
-          gh api --method POST \
-            "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=latest.json" \
-            --input latest.json -H "Content-Type: application/octet-stream"
-          echo "latest.json replaced (platforms: $(python3 -c "import json; print(sorted(json.load(open('latest.json'))['platforms']))"))"
 
   # ---------- Gitee 同步（dataBasePro 模式）----------
   # GitHub Release 发布后，把附件同步到 Gitee Release。全程 best-effort：
