@@ -360,6 +360,13 @@ jobs:
             if echo "$EXISTING" | grep -qx "$NAME"; then
               echo "skip existing: $NAME"; continue
             fi
+            # 大文件（>50MB）从 US runner 跨境上传 Gitee 实测不可行
+            # （81MB AppImage 卡 3 小时 0%）——跳过并提示本地兜底。
+            SIZE_MB=$(du -m "$f" | cut -f1)
+            if [ "$SIZE_MB" -gt 50 ]; then
+              echo "::notice::$NAME is ${SIZE_MB}MB — too large for cross-border upload; sync it locally via scripts/sync-gitee-release.sh"
+              continue
+            fi
             for i in 1 2 3 4 5 6; do
               echo "upload $NAME (attempt $i)..."
               if curl -fS --connect-timeout 20 --max-time 3600 \
