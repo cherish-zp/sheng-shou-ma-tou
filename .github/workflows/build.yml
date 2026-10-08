@@ -346,40 +346,6 @@ jobs:
           fi
           echo "Gitee release id: ${RELEASE_ID}"
 
-          # 3) 下载 GitHub Release 全部附件
-          rm -rf dist && mkdir -p dist
-          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir dist
-
-          # 4) 幂等上传：同名附件跳过，其余重试 4 次、间隔 30s。
-          # Gitee 附件名支持中文：上传前把 ShengShouMaTou 前缀换成显示名「圣手码头」
-          EXISTING=$(curl -sf "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases/${RELEASE_ID}/attach_files?access_token=${GITEE_TOKEN}" | jq -r '.[].browser_download_url' | xargs -r -n1 basename || true)
-          for f in dist/*; do
-            BASE=$(basename "$f")
-            NAME="圣手码头${BASE#ShengShouMaTou}"
-            if [ "$NAME" != "$BASE" ]; then mv "$f" "dist/$NAME"; f="dist/$NAME"; fi
-            if echo "$EXISTING" | grep -qx "$NAME"; then
-              echo "skip existing: $NAME"; continue
-            fi
-            # 大文件（>50MB）从 US runner 跨境上传 Gitee 实测不可行
-            # （81MB AppImage 卡 3 小时 0%）——跳过并提示本地兜底。
-            SIZE_MB=$(du -m "$f" | cut -f1)
-            if [ "$SIZE_MB" -gt 50 ]; then
-              echo "::notice::$NAME is ${SIZE_MB}MB — too large for cross-border upload; sync it locally via scripts/sync-gitee-release.sh"
-              continue
-            fi
-            for i in 1 2 3 4 5 6; do
-              echo "upload $NAME (attempt $i)..."
-              if curl -fS --connect-timeout 20 --max-time 3600 \
-                   -X POST "${API}/releases/${RELEASE_ID}/attach_files?access_token=${GITEE_TOKEN}" \
-                   -F "file=@${f}" 2>curl_err.txt; then
-                echo "uploaded: $NAME"; break
-              fi
-              echo "attempt $i failed:"; tail -3 curl_err.txt
-              [ "$i" = 6 ] && echo "::error::failed to upload $NAME to Gitee"
-              sleep 30
-            done
-          done
-
           # ---- 维护 Gitee 常驻 latest release（自动更新检查端点）----
           # tauri-action 生成的 latest.json 中 URL 指向 GitHub；Gitee 版必须
           # 重写为 Gitee 附件地址（国内可达），上传到名为 latest 的常驻
@@ -422,3 +388,37 @@ jobs:
               done
             fi
           fi
+          # 3) 下载 GitHub Release 全部附件
+          rm -rf dist && mkdir -p dist
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir dist
+
+          # 4) 幂等上传：同名附件跳过，其余重试 4 次、间隔 30s。
+          # Gitee 附件名支持中文：上传前把 ShengShouMaTou 前缀换成显示名「圣手码头」
+          EXISTING=$(curl -sf "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases/${RELEASE_ID}/attach_files?access_token=${GITEE_TOKEN}" | jq -r '.[].browser_download_url' | xargs -r -n1 basename || true)
+          for f in dist/*; do
+            BASE=$(basename "$f")
+            NAME="圣手码头${BASE#ShengShouMaTou}"
+            if [ "$NAME" != "$BASE" ]; then mv "$f" "dist/$NAME"; f="dist/$NAME"; fi
+            if echo "$EXISTING" | grep -qx "$NAME"; then
+              echo "skip existing: $NAME"; continue
+            fi
+            # 大文件（>50MB）从 US runner 跨境上传 Gitee 实测不可行
+            # （81MB AppImage 卡 3 小时 0%）——跳过并提示本地兜底。
+            SIZE_MB=$(du -m "$f" | cut -f1)
+            if [ "$SIZE_MB" -gt 50 ]; then
+              echo "::notice::$NAME is ${SIZE_MB}MB — too large for cross-border upload; sync it locally via scripts/sync-gitee-release.sh"
+              continue
+            fi
+            for i in 1 2 3 4 5 6; do
+              echo "upload $NAME (attempt $i)..."
+              if curl -fS --connect-timeout 20 --max-time 3600 \
+                   -X POST "${API}/releases/${RELEASE_ID}/attach_files?access_token=${GITEE_TOKEN}" \
+                   -F "file=@${f}" 2>curl_err.txt; then
+                echo "uploaded: $NAME"; break
+              fi
+              echo "attempt $i failed:"; tail -3 curl_err.txt
+              [ "$i" = 6 ] && echo "::error::failed to upload $NAME to Gitee"
+              sleep 30
+            done
+          done
+
