@@ -268,7 +268,9 @@ jobs:
   patch-release-names:
     name: Patch CJK asset names
     needs: build
-    if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v') }}
+    # dispatch 时 build 被跳过（skipped）——needs 引用 skipped 会默认连带跳过，
+    # 这里用 !cancelled() 显式接管求值：build 真失败则不跑，skipped 则照常跑
+    if: ${{ !cancelled() && needs.build.result != 'failure' && (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -312,7 +314,7 @@ jobs:
   assemble-updater-json:
     name: Assemble updater manifest
     needs: [build, patch-release-names]
-    if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v') }}
+    if: ${{ !cancelled() && needs.build.result != 'failure' && needs.patch-release-names.result != 'failure' && (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -401,7 +403,7 @@ jobs:
   sync-gitee:
     name: Sync release to Gitee
     needs: [build, patch-release-names, assemble-updater-json]
-    if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v') }}
+    if: ${{ !cancelled() && needs.build.result != 'failure' && needs.patch-release-names.result != 'failure' && needs.assemble-updater-json.result != 'failure' && (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
