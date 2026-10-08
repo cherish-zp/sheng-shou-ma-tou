@@ -135,14 +135,27 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Decode updater signing key
+      - name: Normalize updater signing key
         run: |
-          echo "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" | base64 -d > /tmp/updater-signing.key
-          # Sanity check: a decoded minisign private key starts with an
-          # "untrusted comment" line. Failing here is far clearer than a
-          # cryptic signer error deep inside the bundler.
-          head -1 /tmp/updater-signing.key | grep -q "untrusted comment" \
-            || { echo "::error::decoded TAURI_SIGNING_PRIVATE_KEY does not look like a minisign key (check that the secret holds the BASE64 of the key file)"; exit 1; }
+          # tauri's TAURI_SIGNING_PRIVATE_KEY (string form) accepts ONLY the
+          # single-line base64 of the minisign key (= the content of the
+          # .key file, dW50...-style). Accept BOTH the raw minisign key file
+          # and that base64 from the secret; normalize to the base64 form.
+          SECRET="${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}"
+          if printf '%s' "$SECRET" | head -c 18 | grep -q "untrusted comment"; then
+            echo "secret is a raw minisign key file — encoding to single-line base64"
+            # Trailing newline is part of the canonical minisign key file;
+            # without it the decoded key differs from the tauri-generated
+            # .key and will NOT pair with the embedded pubkey.
+            printf '%s\n' "$SECRET" | base64 -w 0 > /tmp/updater-signing.key
+          else
+            echo "secret assumed to be the .key base64 form — stripping whitespace"
+            printf '%s' "$SECRET" | tr -d '\n\r ' > /tmp/updater-signing.key
+          fi
+          # Validate: must decode into a minisign key file.
+          base64 -d /tmp/updater-signing.key | head -1 | grep -q "untrusted comment" \
+            || { echo "::error::TAURI_SIGNING_PRIVATE_KEY is neither a raw minisign key nor its base64. Expected the content of the .key file (starts with dW50...) or the raw key file."; exit 1; }
+          echo "updater signing key normalized and verified"
 
       - name: Build & release
         uses: tauri-apps/tauri-action@v0
