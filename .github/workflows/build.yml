@@ -84,8 +84,9 @@ jobs:
       matrix:
         include:
           # macOS arm64（Apple Silicon）。macOS 链路对中文 productName 稳健，
-          # .app/dmg 直接使用「圣手码头」（上传后由 patch-release-names job
-          # 修复 tauri-action 剥字导致的附件名）。
+          # .app/dmg 使用「圣手码头」；GitHub 附件名会被服务端清洗为 ASCII
+          # （圣手码头_ → _），由 assemble-updater-json job 统一改名
+          # 为 ShengShouMaTou 前缀。
           # 如需 universal2 合并包，可将两个 macos job 换成单个
           # --target universal-apple-darwin（见 docs/RELEASE.md）
           - platform: macos-latest
@@ -261,60 +262,25 @@ jobs:
             --title "[CI] ${{ matrix.slug }} 构建失败 @ ${{ github.ref_name }} (${{ github.run_id }})" \
             --body-file body.md || echo "::warning::diagnostic issue creation failed"
 
-  # ---------- 修复 macOS 中文附件名 ----------
-  # tauri-action 上传附件时剥除中文字符（圣手码头_0.1.1_aarch64.dmg →
-  # _0.1.1_aarch64.dmg）。macOS 的 .app/dmg 本体在构建端名字正确，
-  # 这里用 GitHub API 直接 PATCH 附件名恢复中文（无需重传）。
-  patch-release-names:
-    name: Patch CJK asset names
-    needs: build
-    # dispatch 时 build 被跳过（skipped）——needs 引用 skipped 会默认连带跳过，
-    # 这里用 !cancelled() 显式接管求值：build 真失败则不跑，skipped 则照常跑
-    if: ${{ !cancelled() && needs.build.result != 'failure' && (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')) }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      TAG: ${{ inputs.tag || github.ref_name }}
-    steps:
-      - name: Restore CJK prefix in asset names
-        run: |
-          python3 - << 'PYEOF'
-          import json, os, subprocess
-
-          repo = os.environ["GITHUB_REPOSITORY"]
-          tag = os.environ["TAG"]
-          display = "圣手码头"
-
-          assets = json.loads(subprocess.check_output(
-              ["gh", "api", f"repos/{repo}/releases/tags/{tag}",
-               "--jq", "[.assets[] | {id: .id, name: .name}]"]))
-          for a in assets:
-              name = a["name"]
-              if name[:1] in ("_", "-"):
-                  new_name = display + name
-                  print(f"patch: {name!r} -> {new_name!r}")
-                  subprocess.run(
-                      ["gh", "api", "-X", "PATCH",
-                       f"repos/{repo}/releases/assets/{a['id']}",
-                       "-f", f"name={new_name}"],
-                      check=True)
-              else:
-                  print(f"ok: {name!r}")
-          PYEOF
+  # （原 patch-release-names job 已删除：实测 GitHub 服务端会清洗附件名中的
+  #   非 ASCII 字符，PATCH 改中文名返回 200 也会被清洗回去，该 job 从未生效；
+  #   改名逻辑已并入 assemble-updater-json——统一改为 ASCII 前缀 ShengShouMaTou）
 
   # ---------- 重组 latest.json（确定性，绕开 tauri-action 合并缺陷）----------
-  # 实测：矩阵并行构建时 tauri-action 合并 latest.json 会丢 macOS 条目
-  # （platforms 只剩 linux/windows，darwin 键整个缺失，macOS 用户检查更新
-  # 报 "None of the fallback platforms"）。这里在附件名恢复后，直接从
-  # Release 的 .sig 附件重组清单：版本取 tag，签名取对应 .sig 文件内容，
-  # URL 取 browser_download_url（已是 percent-encoded）。缺任一必需平台
-  # 则 job 失败（发版必须四平台齐全）。
+  # 实测两件事：
+  # 1) tauri-action 矩阵并行合并 latest.json 会丢 macOS 条目（platforms 只剩
+  #    linux/windows 键，darwin 键整个缺失，macOS 用户检查更新报
+  #    "None of the fallback platforms"）；
+  # 2) GitHub 服务端会静默清洗附件名中的非 ASCII 字符（圣手码头_ → _），
+  #    且 PATCH 改回中文名返回 200 却再次被清洗——**GitHub 附件名只能 ASCII**。
+  # 这里从 Release 的 .sig 附件确定性重组清单：版本取 tag，签名取对应 .sig
+  # 文件内容，URL 取 browser_download_url；先把 `_` 前缀附件改名为
+  # ShengShouMaTou 前缀（ASCII，Gitee 侧由 sync 脚本再转「圣手码头」）。
+  # 缺任一必需平台则 job 失败（发版必须四平台齐全）。
   assemble-updater-json:
     name: Assemble updater manifest
-    needs: [build, patch-release-names]
-    if: ${{ !cancelled() && needs.build.result != 'failure' && needs.patch-release-names.result != 'failure' && (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')) }}
+    needs: [build]
+    if: ${{ !cancelled() && needs.build.result != 'failure' && (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -325,13 +291,13 @@ jobs:
       - name: Rebuild latest.json from release signatures
         run: |
           python3 - << 'PYEOF'
-          import json, os, subprocess, time, urllib.request
+          import json, os, subprocess, time, urllib.parse, urllib.request
           from datetime import datetime, timezone
 
           repo = os.environ["GITHUB_REPOSITORY"]
           tag = os.environ["TAG"]
           version = tag[1:] if tag.startswith("v") else tag
-          display = "圣手码头"
+          ascii_prefix = "ShengShouMaTou"
           print(f"TAG={tag!r} REPO={repo!r} version={version!r}")
 
           def gh(*args, check=True):
@@ -352,16 +318,21 @@ jobs:
           assets = rel["assets"]
           print(f"release id={rel['id']} assets={len(assets)}")
 
-          # 1) 恢复被剥掉的 CJK 前缀（同 patch-release-names，幂等；失败不阻塞）
+          # 1) 恢复附件名的统一 ASCII 前缀（GitHub 会清洗非 ASCII——改中文名
+          #    返回 200 也会被清洗回去；改 ASCII 名才真正生效），并同步刷新
+          #    内存中的 browser_download_url（改名后旧 URL 会失效）
           for a in assets:
               name = a["name"]
               if name[:1] in ("_", "-"):
-                  new_name = display + name
+                  new_name = ascii_prefix + name
                   try:
                       gh("-X", "PATCH", f"repos/{repo}/releases/assets/{a['id']}",
                          "-f", f"name={new_name}")
                       print(f"renamed: {name!r} -> {new_name!r}")
                       a["name"] = new_name
+                      a["browser_download_url"] = (
+                          f"https://github.com/{repo}/releases/download/{tag}/"
+                          + urllib.parse.quote(new_name))
                   except subprocess.CalledProcessError as e:
                       print(f"rename skipped for {name!r}: {e.stderr.strip()[:120]}")
           assets = rel["assets"]
@@ -456,8 +427,8 @@ jobs:
   # scripts/sync-gitee-release.sh 本地兜底）。
   sync-gitee:
     name: Sync release to Gitee
-    needs: [build, patch-release-names, assemble-updater-json]
-    if: ${{ !cancelled() && needs.build.result != 'failure' && needs.patch-release-names.result != 'failure' && needs.assemble-updater-json.result != 'failure' && (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')) }}
+    needs: [build, assemble-updater-json]
+    if: ${{ !cancelled() && needs.build.result != 'failure' && needs.assemble-updater-json.result != 'failure' && (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
