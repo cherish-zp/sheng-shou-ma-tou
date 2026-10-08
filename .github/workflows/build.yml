@@ -137,48 +137,53 @@ jobs:
 
       - name: Normalize updater signing key
         shell: bash
+        env:
+          SECRET_B64: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          KEY_OUT: ${{ runner.temp }}/updater-signing.key
         run: |
           # tauri's TAURI_SIGNING_PRIVATE_KEY (string form) accepts ONLY the
-          # single-line base64 of the minisign key (= the content of the
-          # .key file, dW50...-style). Accept BOTH the raw minisign key file
-          # and that base64 from the secret; normalize to the base64 form.
-          # NOTE: decoding uses python3 because the system `base64 -d` is
-          # BSD-flavored on macOS runners (-D, not -d) and fails there.
-          printf '%s' "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" > /tmp/secret.raw
-          # Fingerprint (no plaintext leak): length + md5 + first 6 chars
-          echo "secret fingerprint: len=$(wc -c < /tmp/secret.raw | tr -d ' ') md5=$(md5sum /tmp/secret.raw | cut -c1-12) prefix=$(head -c 6 /tmp/secret.raw)"
+          # single-line base64 of the minisign key (= content of the .key file).
+          # Secret may be that base64 or the raw key file — normalize here.
+          # KEY_OUT uses $RUNNER_TEMP: a path ALL processes on the runner
+          # (bash, python3, node) resolve identically — /tmp does NOT (a Git
+          # Bash virtual path invisible to native Windows processes; this
+          # exact mismatch failed the Windows job in v0.3.0).
           python3 - << 'PY'
-          import base64, sys
-          secret = open("/tmp/secret.raw").read().strip()
+          import base64, os, sys
+          secret = os.environ.get("SECRET_B64", "").strip()
+          out_path = os.environ["KEY_OUT"]
           def is_minisign_key_file(content):
               return content.split(b"\n", 1)[0].startswith(b"untrusted comment")
-          # Accept up to double-base64: the .key file itself is base64 of the
-          # minisign key, so a user base64-ing it again yields two layers.
+          # Accept up to double-base64 (the .key file itself is base64 already).
+          recognized = False
+          work = secret
           for _round in range(3):
               try:
-                  candidate = base64.b64decode(secret)
+                  decoded = base64.b64decode(work)
               except Exception:
                   break
-              if is_minisign_key_file(candidate):
-                  print(f"minisign key recognized after {_round} extra decode round(s)")
-                  open("/tmp/updater-signing.key", "wb").write(secret.encode())
-                  sys.exit(0)
-              # Not a key file yet — peel one more base64 layer and retry.
-              try:
-                  secret = base64.b64decode(secret).decode()
-              except Exception:
+              if is_minisign_key_file(decoded):
+                  open(out_path + ".raw", "wb").write(decoded)
+                  recognized = True
                   break
-          print("::error::TAURI_SIGNING_PRIVATE_KEY could not be normalized. Expected the .key file content (dW50... base64), its base64, or the raw minisign key.")
-          sys.exit(1)
+              work = decoded.decode("utf-8", "ignore").strip()
+          if not recognized and is_minisign_key_file(secret.encode()):
+              open(out_path + ".raw", "wb").write(secret.encode())
+              recognized = True
+          if not recognized:
+              print("::error::TAURI_SIGNING_PRIVATE_KEY could not be normalized. Expected the .key file content (dW50... base64), its base64, or the raw key file.")
+              sys.exit(1)
+          # Final artifact: the single-line base64 form tauri expects.
+          open(out_path, "w").write(secret if is_minisign_key_file(base64.b64decode(secret)) else work)
+          print("updater signing key normalized and verified")
           PY
-
       - name: Build & release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # ---- 更新器签名（v0.3.0 起）：CI 从 secret 解码私钥文件（见上一步），
           # env 传文件路径。私钥丢失 = 老用户收不到更新，务必备份 ----
-          TAURI_SIGNING_PRIVATE_KEY: /tmp/updater-signing.key
+          TAURI_SIGNING_PRIVATE_KEY: ${{ runner.temp }}/updater-signing.key
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           # ---- macOS 签名 + 公证（购买 Apple Developer 账号后按 docs/RELEASE.md 加回）----
           # 注意：不要以空字符串形式保留 APPLE_* env——secret 不存在时
