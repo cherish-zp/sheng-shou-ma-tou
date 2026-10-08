@@ -67,9 +67,9 @@
     "deleteCfNamedHint": "The remote tunnel and DNS record remain in your Cloudflare account — clean up in the Cloudflare dashboard (one-click cleanup is coming in a later version).",
     "cleanupCfNamed": "Clean up cloud resources",
     "cleanupCfNamedTitle": "Clean up Cloudflare resources",
-    "cleanupCfNamedDescription": "This deletes tunnel “{name}” and its DNS records from your Cloudflare account, and removes the local config. This cannot be undone.",
+    "cleanupCfNamedDescription": "This deletes tunnel “{{name}}” and its DNS records from your Cloudflare account, and removes the local config. This cannot be undone.",
     "cleanupCfNamedConfirm": "Clean up",
-    "cleanupCfNamedDone": "Removed tunnel “{name}” and its DNS records from Cloudflare",
+    "cleanupCfNamedDone": "Removed tunnel “{{name}}” and its DNS records from Cloudflare",
     "cleanupCfNamedFailed": "Failed to clean up cloud resources"
   },
   "add": {
@@ -179,7 +179,7 @@
       "success": "Fixed-hostname tunnel “{{name}}” started",
       "needLocalFirst": "Fill in a valid local host and port above before linking a fixed hostname."
     },
-    "backendMappingCfNamedEdit": "Fixed hostname {hostname} cannot be changed. You can edit the local service address, port and access control — changes apply on the next start."
+    "backendMappingCfNamedEdit": "Fixed hostname {{hostname}} cannot be changed. You can edit the local service address, port and access control — changes apply on the next start."
   },
   "logs": {
     "title": "Logs",
@@ -511,16 +511,16 @@
   },
   "update": {
     "settingsTitle": "About & Updates",
-    "currentVersion": "Current version: {version}",
+    "currentVersion": "Current version: {{version}}",
     "statusLabel": "Update status",
     "statusIdle": "Idle",
     "statusChecking": "Checking for updates…",
     "statusUpToDate": "You are up to date",
-    "statusAvailable": "New version {version} available",
+    "statusAvailable": "New version {{version}} available",
     "statusError": "Check/update failed",
     "checkNow": "Check for updates",
     "autoCheckHint": "The app checks for updates on startup and then every hour. You can also check manually anytime.",
-    "available": "New version {version} available",
+    "available": "New version {{version}} available",
     "installNow": "Update now",
     "ignoreVersion": "Skip this version",
     "downloading": "Downloading update…",

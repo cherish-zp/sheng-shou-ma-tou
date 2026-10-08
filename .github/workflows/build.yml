@@ -17,11 +17,17 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      tag:
+        description: '已发布 tag（如 v0.3.0）——仅重跑 patch/清单组装/Gitee 同步，不重新构建'
+        required: false
+        type: string
 
 jobs:
   # ---------- 质量门禁：类型检查 + 前端构建 + Rust 测试 ----------
   check:
     name: Check (ubuntu)
+    if: ${{ github.event_name != 'workflow_dispatch' }}
     runs-on: ubuntu-22.04 # 若 runner 退役可改 ubuntu-24.04，系统依赖相同
     steps:
       - uses: actions/checkout@v4
@@ -66,6 +72,7 @@ jobs:
   # ---------- 三平台构建 ----------
   build:
     name: Build ${{ matrix.slug }}
+    if: ${{ github.event_name != 'workflow_dispatch' }}
     needs: check
     runs-on: ${{ matrix.platform }}
     permissions:
@@ -261,13 +268,13 @@ jobs:
   patch-release-names:
     name: Patch CJK asset names
     needs: build
-    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      TAG: ${{ github.ref_name }}
+      TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - name: Restore CJK prefix in asset names
         run: |
@@ -295,14 +302,106 @@ jobs:
                   print(f"ok: {name!r}")
           PYEOF
 
+  # ---------- 重组 latest.json（确定性，绕开 tauri-action 合并缺陷）----------
+  # 实测：矩阵并行构建时 tauri-action 合并 latest.json 会丢 macOS 条目
+  # （platforms 只剩 linux/windows，darwin 键整个缺失，macOS 用户检查更新
+  # 报 "None of the fallback platforms"）。这里在附件名恢复后，直接从
+  # Release 的 .sig 附件重组清单：版本取 tag，签名取对应 .sig 文件内容，
+  # URL 取 browser_download_url（已是 percent-encoded）。缺任一必需平台
+  # 则 job 失败（发版必须四平台齐全）。
+  assemble-updater-json:
+    name: Assemble updater manifest
+    needs: [build, patch-release-names]
+    if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - name: Rebuild latest.json from release signatures
+        run: |
+          python3 - << 'PYEOF'
+          import json, os, subprocess, urllib.request
+          from datetime import datetime, timezone
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          tag = os.environ["TAG"]
+          version = tag[1:] if tag.startswith("v") else tag
+
+          rel = json.loads(subprocess.check_output(
+              ["gh", "api", f"repos/{repo}/releases/tags/{tag}"]))
+          assets = rel["assets"]
+
+          def find(suffix):
+              for a in assets:
+                  if a["name"].endswith(suffix):
+                      return a
+              return None
+
+          # 平台键 → 附件名后缀（同一附件可挂多个键：updater 逐个探测）
+          MAPPING = [
+              ("darwin-aarch64", "_aarch64.app.tar.gz"),
+              ("darwin-aarch64-app", "_aarch64.app.tar.gz"),
+              ("darwin-x86_64", "_x64.app.tar.gz"),
+              ("darwin-x86_64-app", "_x64.app.tar.gz"),
+              ("windows-x86_64", "_x64-setup.exe"),
+              ("windows-x86_64-nsis", "_x64-setup.exe"),
+              ("windows-x86_64-msi", "_x64_en-US.msi"),
+              ("linux-x86_64", "_amd64.AppImage"),
+              ("linux-x86_64-appimage", "_amd64.AppImage"),
+          ]
+
+          platforms = {}
+          for key, suffix in MAPPING:
+              if key in platforms:
+                  continue
+              a = find(suffix)
+              if not a:
+                  continue
+              sig_asset = find(a["name"] + ".sig")
+              if not sig_asset:
+                  raise SystemExit(f"signature missing: {a['name']}.sig")
+              sig = urllib.request.urlopen(
+                  sig_asset["browser_download_url"], timeout=60).read().decode().strip()
+              platforms[key] = {"signature": sig, "url": a["browser_download_url"]}
+              print(f"{key} -> {a['name']}")
+
+          required = {"darwin-aarch64", "darwin-x86_64", "windows-x86_64", "linux-x86_64"}
+          missing = required - set(platforms)
+          if missing:
+              raise SystemExit(f"required platforms missing from release: {sorted(missing)}")
+
+          doc = {
+              "version": version,
+              "notes": "",
+              "pub_date": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "platforms": platforms,
+          }
+          json.dump(doc, open("latest.json", "w"), ensure_ascii=False, indent=2)
+          PYEOF
+      - name: Replace latest.json on the release
+        run: |
+          OLD_ID=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" \
+            --jq '.assets[] | select(.name == "latest.json") | .id')
+          if [ -n "$OLD_ID" ]; then
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$OLD_ID"
+          fi
+          RELEASE_ID=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq .id)
+          gh api --method POST \
+            "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=latest.json" \
+            --input latest.json -H "Content-Type: application/octet-stream"
+          echo "latest.json replaced (platforms: $(python3 -c "import json; print(sorted(json.load(open('latest.json'))['platforms']))"))"
+
   # ---------- Gitee 同步（dataBasePro 模式）----------
   # GitHub Release 发布后，把附件同步到 Gitee Release。全程 best-effort：
   # 未配置 GITEE_TOKEN 时跳过；同步失败不阻塞 GitHub 发布（可用
   # scripts/sync-gitee-release.sh 本地兜底）。
   sync-gitee:
     name: Sync release to Gitee
-    needs: [build, patch-release-names]
-    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    needs: [build, patch-release-names, assemble-updater-json]
+    if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -310,7 +409,7 @@ jobs:
       GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
       GITEE_OWNER: princess-zp
       GITEE_REPO: sheng-shou-ma-tou
-      TAG: ${{ github.ref_name }}
+      TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - name: Skip when GITEE_TOKEN is not configured
         if: env.GITEE_TOKEN == ''
