@@ -47,8 +47,39 @@ Windows 代码签名、以及更新器（updater）的启用路线。
      **Release 草稿**（Draft），并附上全部产物。
 5. **人工验收草稿**：到 GitHub Releases 下载草稿产物，按下文 §5 检查清单逐项 smoke test。
 6. **正式发布**：草稿页点 "Publish"（或用 `gh release edit v0.2.0 --draft=false`）。
+7. **同步到 Gitee**（国内分发，见 §1.2）：CI 自动传小文件，大附件需本机补传。
 
-### 1.2 手动触发一次构建（不发布）
+### 1.2 Gitee 同步与本地补传（国内分发，必做）
+
+Gitee 承担国内下载源与自动更新首选端点，但有两个硬约束（实测结论）：
+
+- **Gitee Go 无法多平台构建**：云端 runner 只有 Linux 容器，没有 macOS/Windows
+  构建机（官方编译插件也无 Rust）——产物只能在 GitHub Actions 构建；
+- **跨境上传大文件不可行**：>50MB 的附件从 GitHub Actions（US runner）上传 Gitee
+  会长时间卡死（83MB AppImage 实测卡 3 小时 0%）。Gitee 附件单文件上限 100MB、
+  单仓库附件总容量 1GB（发新版时可清理旧版本大附件）。
+
+因此流程是「CI 传小文件 + 本机补传大文件」：
+
+1. **CI 自动完成**（tag push 后 sync-gitee job）：创建 Gitee Release、上传全部
+   <50MB 附件（.sig、deb、rpm、exe、msi、dmg 等），并把 `latest.json` 重写为
+   Gitee 版本化 URL 后覆盖上传到常驻 `latest` release（自动更新检查端点）。
+2. **本机补传大文件**（如 83MB AppImage，境内→境内直传）：
+   ```bash
+   GITEE_TOKEN=<gitee私人令牌，勾 projects 权限> \
+     ./scripts/sync-gitee-release.sh v0.3.0
+   ```
+   脚本幂等：只下载/上传 Gitee 缺失的附件，同时维护 `latest` release 的
+   latest.json。**这一步是发版的必做项**——AppImage 用户的更新端点依赖它。
+3. **验收 Gitee**：
+   ```bash
+   # 版本化 Release 附件齐全（除 >50MB 需补传的）
+   curl -s "https://gitee.com/api/v5/repos/princess-zp/sheng-shou-ma-tou/releases/tags/v0.3.0" | jq '.assets[].name'
+   # 自动更新端点可用（应返回 JSON，URL 全部指向 gitee.com）
+   curl -s "https://gitee.com/princess-zp/sheng-shou-ma-tou/releases/download/latest/latest.json"
+   ```
+
+### 1.3 手动触发一次构建（不发布）
 
 Actions 页面选择 `build` workflow → `Run workflow`。产物以
 `pier-macos-arm64` / `pier-macos-intel` / `pier-windows-x64` / `pier-linux-x64`

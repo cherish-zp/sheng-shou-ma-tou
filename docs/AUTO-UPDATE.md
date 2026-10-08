@@ -75,17 +75,23 @@ npx @tauri-apps/cli signer generate -w ~/my-keys/app.key -p ""
 ## 2. 双源与 Gitee 常驻 latest（国内可达的关键）
 
 tauri-action 生成的 `latest.json` 中 URL 指向 GitHub 附件——**国内不可达**。
-CI 的 sync-gitee job 在附件同步后追加：
+CI 的 sync-gitee job（或本机跑 `scripts/sync-gitee-release.sh`）负责维护
+Gitee **常驻 `latest` release**（tag 名 `latest`，不存在则创建），里面只放一个
+`latest.json`：
 
-1. 读 `dist/latest.json`
-2. **URL 重写**：GitHub 附件地址 → Gitee 常驻 `latest` release 的附件地址
-   （jq：`.platforms |= with_entries(.value.url |= sub("https://github.com/[^/]+/[^/]+/releases/download/[^/]+/"; "https://gitee.com/<org>/<repo>/releases/download/latest/"))`）
-3. 上传重写后的 latest.json 到 Gitee **常驻 `latest` release**（tag 名 `latest`，
-   不存在则创建；先删同名旧附件再上传——幂等）
-4. 同时把各平台安装包补传到 latest release（latest.json 的下载目标）
+1. **先下载** GitHub Release 全部附件到 `dist/`（重写逻辑依赖本地文件——
+   曾把维护块排在下载前导致 `dist/latest.json` 不存在、整块静默空转）；
+2. **URL 重写**：每个平台 URL 的文件名剥出来（先 unquote），GitHub 的
+   `ShengShouMaTou` 前缀映射为 Gitee 的「圣手码头」前缀，再 percent-encode，
+   拼到 `https://gitee.com/<org>/<repo>/releases/download/<TAG>/` ——
+   **指向版本化 Release 而非 latest release**，避免把安装包镜像两份；
+3. 先删 latest release 上的同名旧附件再上传（幂等，每次发版覆盖）；
+4. 版本化 Release 的安装包由附件同步步骤补齐——**>50MB 的大文件 CI 传不动，
+   必须本机补传**（见 §5 #7），否则对应平台 URL 404。
 
 > Gitee API token：`gitee.com/profile/personal_access_tokens` 生成，勾 **projects** 权限，
-> 存 GitHub Secrets `GITEE_TOKEN`。同步失败可本地跑 `scripts/sync-gitee-release.sh` 兜底。
+> 存 GitHub Secrets `GITEE_TOKEN`。同步失败可本地跑 `scripts/sync-gitee-release.sh` 兜底
+> （curl + python3，无 gh/jq 依赖）。
 
 ## 3. 应用内更新（前端）
 
@@ -102,9 +108,11 @@ CI 的 sync-gitee job 在附件同步后追加：
 1. 版本号三处同步（tauri.conf.json / Cargo.toml / package.json）+ `cargo update -w`（Cargo.lock）
 2. CHANGELOG 条目
 3. commit + push + **annotated tag**（message 即发版说明）+ push tag
-4. CI 自动完成构建/签名/发布/Gitee 同步/latest 维护
-5. 验证：GitHub Release 附件含 `.sig` 与 `latest.json`；Gitee latest release 的
-   latest.json URL 均为 Gitee 地址；老版本应用内「检查更新」可见新版本
+4. CI 自动完成构建/签名/发布/Gitee 小附件同步/latest 维护
+5. **本机补传大附件**（必做）：`GITEE_TOKEN=... ./scripts/sync-gitee-release.sh v0.3.0`
+6. 验证：GitHub Release 附件含 `.sig` 与 `latest.json`；Gitee 版本化 Release
+   附件齐全；`releases/download/latest/latest.json` 返回 JSON 且 URL 均为
+   Gitee 版本化地址、逐个可下载；老版本应用内「检查更新」可见新版本
 
 ---
 
@@ -155,13 +163,20 @@ CI 的 sync-gitee job 在附件同步后追加：
   应用内显示名保留中文；中文附件名放 Gitee（Gitee 支持，同步脚本上传时重命名）。
 - 事后补救：Release **编辑页**的附件名输入框可手动改（ASCII 名可稳定保存）。
 
-### #7 跨境大文件上传 Gitee 不可行
+### #7 跨境大文件上传 Gitee 不可行，且 Gitee 不能自己构建
 
 - US runner → Gitee 传 81MB：curl 速度显示 1.6MB/s"正常"，但**进度 0% 且内部
   计时 1h22m+**（链路拖慢），单次 30 分钟超时被掐 → 重试 → 再超时。
 - **修复**：sync 脚本对 **>50MB 附件跳过**并输出 `::notice` 提示本地兜底
-  （`scripts/sync-gitee-release.sh` 本地网络上传快）。
+  （`scripts/sync-gitee-release.sh` 本地网络上传快）；**本机补传是发版必做项**。
 - 小文件（≤50MB）正常上传 + 6 次重试 + 失败计数。
+- **别指望 Gitee 自己构建**：Gitee Go 云端 runner 只有 Linux 容器（1C2G–8C16G），
+  没有 macOS/Windows 构建机，官方编译插件也没有 Rust——Tauri 的 dmg/msi 无法
+  在 Gitee 云端产出。25k star 的 dbx 也是这么选的：Gitee 只做**纯代码镜像**
+  （git push 分支+tag，零发行版），国内分发走 CNB + 自建对象存储。
+- **平台配额**：Gitee 附件**单文件 100MB**、**单仓库附件总容量 1GB**（社区版）
+  ——版本发多了注意清理旧版本大附件；Gitee Pages 已下线，不能用它托管
+  latest.json（用常驻 latest release 挂附件是可行替代）。
 
 ### #8 QUIC 被拦网络（应用运行时 + 都要注意）
 
