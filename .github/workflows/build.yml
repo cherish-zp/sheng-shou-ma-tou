@@ -135,13 +135,22 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Decode updater signing key
+        run: |
+          echo "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" | base64 -d > /tmp/updater-signing.key
+          # Sanity check: a decoded minisign private key starts with an
+          # "untrusted comment" line. Failing here is far clearer than a
+          # cryptic signer error deep inside the bundler.
+          head -1 /tmp/updater-signing.key | grep -q "untrusted comment" \
+            || { echo "::error::decoded TAURI_SIGNING_PRIVATE_KEY does not look like a minisign key (check that the secret holds the BASE64 of the key file)"; exit 1; }
+
       - name: Build & release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # ---- 更新器签名（v0.3.0 起）：私钥 base64 存于 secret
-          # TAURI_SIGNING_PRIVATE_KEY（丢失 = 老用户收不到更新，务必备份）----
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          # ---- 更新器签名（v0.3.0 起）：CI 从 secret 解码私钥文件（见上一步），
+          # env 传文件路径。私钥丢失 = 老用户收不到更新，务必备份 ----
+          TAURI_SIGNING_PRIVATE_KEY: /tmp/updater-signing.key
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           # ---- macOS 签名 + 公证（购买 Apple Developer 账号后按 docs/RELEASE.md 加回）----
           # 注意：不要以空字符串形式保留 APPLE_* env——secret 不存在时
