@@ -212,7 +212,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_JOB_ID: ${{ github.job }}
         run: |
-          LOGS=$(gh run view "$GITHUB_RUN_ID" --job "$GITHUB_JOB_ID" --log-failed 2>/dev/null | tail -120 || echo "log fetch failed")
+          # --log-failed proved unreliable (empty on real failures); the REST
+          # job-logs endpoint returns the full log — keep only the tail.
+          LOGS=$(gh api "repos/${{ github.repository }}/actions/jobs/$GITHUB_JOB_ID/logs" 2>/dev/null | tail -120 \
+                 || gh run view "$GITHUB_RUN_ID" --job "$GITHUB_JOB_ID" --log-failed 2>/dev/null | tail -120 \
+                 || echo "both log fetch paths failed")
           {
             echo "平台: ${{ matrix.slug }}"
             echo "运行: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
