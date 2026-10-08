@@ -158,9 +158,12 @@ Gitee **常驻 `latest` release**（tag 名 `latest`，不存在则创建），�
 ### #6 GitHub 剥非 ASCII 附件名（平台限制）
 
 - 上传时附件名含非 ASCII（如 `圣手码头_0.3.0.dmg`）会被 GitHub **剥成 `_0.3.0.dmg`**；
-  事后用 API PATCH 改回中文名**也无效**（存储层行为）。
+  事后用 API PATCH 改回中文名**也无效**（存储层行为）——v0.3.0 三次 dispatch
+  实锤：PATCH 返回 200、日志打印 renamed，但附件名纹丝不动、旧名 URL 依旧 200。
 - **修复**：附件名统一 **ASCII**（如 `ShengShouMaTou_0.3.0_aarch64.dmg`）；
   应用内显示名保留中文；中文附件名放 Gitee（Gitee 支持，同步脚本上传时重命名）。
+- **教训**：这个坑在本文档里记过，做 v0.3.0 时没查文档又造了个"Patch CJK
+  asset names"job——**发版链路动手前先通读本文档 §5**。
 - 事后补救：Release **编辑页**的附件名输入框可手动改（ASCII 名可稳定保存）。
 
 ### #7 跨境大文件上传 Gitee 不可行，且 Gitee 不能自己构建
@@ -219,19 +222,22 @@ Gitee **常驻 `latest` release**（tag 名 `latest`，不存在则创建），�
 
 - tauri-action 并行矩阵构建各自上传 `latest.json`（下载已有 → 合并 → 重传），
   实测合并结果**只剩 linux/windows 键，darwin-aarch64 / darwin-x86_64 整个
-  缺失**（疑似 CJK 产物名导致其按名匹配签名文件失败后静默跳过 macOS 条目）。
-  macOS 用户检查更新报：`None of the fallback platforms
-  ["darwin-aarch64-app", "darwin-aarch64"] were found in the response
-  platforms object`——**连"已是最新"都不显示**，因为平台匹配发生在版本比较之前。
+  缺失**（疑与 CJK 产物名相关）。macOS 用户检查更新报：`None of the fallback
+  platforms ["darwin-aarch64-app", "darwin-aarch64"] were found in the
+  response platforms object`——**连"已是最新"都不显示**，因为平台匹配发生在
+  版本比较之前。
 - **修复**：不信任 tauri-action 的合并。tag 发版后由独立 job
   （assemble-updater-json）从 Release 的 `.sig` 附件**确定性重组** latest.json：
   版本取 tag、签名取对应 `.sig` 文件内容、URL 取 `browser_download_url`；
   平台键按附件名**后缀**匹配（同一附件可挂多键：updater 会依次探测
   `darwin-aarch64-app` → `darwin-aarch64`）；缺任一必需平台直接 fail。
+- **附件上传必须走 `uploads.github.com`**：`gh api` 默认打 api.github.com，
+  对 `POST /releases/{id}/assets` 路由返回 404（DELETE/PATCH 等普通路由不受
+  影响）——run 19 日志实锤：DELETE 成功、POST 404×5。用绝对 URL 绕过：
+  `gh api https://uploads.github.com/repos/{owner}/{repo}/releases/{id}/assets?name=x`。
 - **别在网页端上传 latest.json**：GitHub 网页上传按扩展名白名单拦截
-  （"We don't support that file type"），`.json` 不在列——网页只能删附件，
-  替换内容只能走 API/CI。
-- workflow_dispatch 支持 `tag` 输入：跳过构建、仅重跑 patch/清单组装/Gitee
+  （"We don't support that file type"），`.json` 不在列——替换内容只能走 API/CI。
+- workflow_dispatch 支持 `tag` 输入：跳过构建、仅重跑清单组装/Gitee
   同步——发版后修补**不需要重打 tag 重构建**。注意：needs 链上被跳过的 job
   会**默认连带跳过**下游（GitHub 隐式 success() 检查），需在下游 if 里用
   `!cancelled() && needs.X.result != 'failure'` 显式接管。
