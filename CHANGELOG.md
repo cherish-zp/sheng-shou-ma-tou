@@ -5,6 +5,31 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本 2.0.0](https://semver.org/lang/zh-CN/)。
 
+## [未发布]
+
+### Added
+- **TCP/UDP 端口转发（目标主机解耦）**：隧道新增「目标主机」（默认 `127.0.0.1`，
+  可填内网 IP）——把暴露出去的公网端口转发到内网其他机器的指定端口
+  （场景：家里电脑 → 公网隧道 → 本地电脑 → 公司内网 a服务器:3306 的 MySQL）。
+  TCP/HTTP 隧道的转发器早已按 `local_host` 拨号，本次补齐 UI 语义
+  （「本地地址」→「目标主机」+ 提示文案）并完成端到端验证
+  （公网固定域名 → 转发器 → 内网 IP，实测返回目标标记）。
+- **UDP 端口转发**：新增 `udp` 隧道类型（仅自建 frp 通道；bore 是 TCP-only、
+  Cloudflare 无明文 UDP ingress）——`UdpForwarder`（按客户端地址分会话、
+  60s 空闲回收、流量统计）+ `TunnelForwarder` 传输无关句柄 +
+  frpc.toml `type = "udp"` + 引擎/命令双层校验。
+- **frps 转发端口段**：服务器配置新增可选「转发端口段」（默认空 = 不限制）——
+  部署时 frps.toml 写 `allowPorts` 限制 + 防火墙放行端口段（TCP+UDP），
+  云安全组提示同步包含端口段。
+
+### Changed
+- 创建 TCP/UDP 隧道时强警示「该端口将对公网开放且没有应用层密码；
+  IP 白名单只作用于本机转发器，无法限制公网来源」。
+- 新建隧道类型选择器增加 UDP 卡片（无已部署服务器时提示先部署）。
+
+### Fixed
+- CI：Gitee 已存在附件检查补 `per_page=100`（默认只回 20 条导致重复上传）。
+
 ## [0.3.0] - 2026-10-07
 
 ### Added
