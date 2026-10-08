@@ -215,6 +215,27 @@ Gitee **常驻 `latest` release**（tag 名 `latest`，不存在则创建），�
 
 ---
 
+### #13 矩阵并行构建合并 latest.json 丢平台键（macOS 用户全挂）
+
+- tauri-action 并行矩阵构建各自上传 `latest.json`（下载已有 → 合并 → 重传），
+  实测合并结果**只剩 linux/windows 键，darwin-aarch64 / darwin-x86_64 整个
+  缺失**（疑似 CJK 产物名导致其按名匹配签名文件失败后静默跳过 macOS 条目）。
+  macOS 用户检查更新报：`None of the fallback platforms
+  ["darwin-aarch64-app", "darwin-aarch64"] were found in the response
+  platforms object`——**连"已是最新"都不显示**，因为平台匹配发生在版本比较之前。
+- **修复**：不信任 tauri-action 的合并。tag 发版后由独立 job
+  （assemble-updater-json）从 Release 的 `.sig` 附件**确定性重组** latest.json：
+  版本取 tag、签名取对应 `.sig` 文件内容、URL 取 `browser_download_url`；
+  平台键按附件名**后缀**匹配（同一附件可挂多键：updater 会依次探测
+  `darwin-aarch64-app` → `darwin-aarch64`）；缺任一必需平台直接 fail。
+- **别在网页端上传 latest.json**：GitHub 网页上传按扩展名白名单拦截
+  （"We don't support that file type"），`.json` 不在列——网页只能删附件，
+  替换内容只能走 API/CI。
+- workflow_dispatch 支持 `tag` 输入：跳过构建、仅重跑 patch/清单组装/Gitee
+  同步——发版后修补**不需要重打 tag 重构建**。注意：needs 链上被跳过的 job
+  会**默认连带跳过**下游（GitHub 隐式 success() 检查），需在下游 if 里用
+  `!cancelled() && needs.X.result != 'failure'` 显式接管。
+
 ## 6. 可选增强（未实施，按需）
 
 - Windows 便携版（zip 单 exe）：移植 dbx `update_portable.rs`
