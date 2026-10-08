@@ -19,9 +19,9 @@ set -euo pipefail
 
 TAG="${1:?usage: GITEE_TOKEN=... $0 v0.3.0}"
 GITEE_TOKEN="${GITEE_TOKEN:?GITEE_TOKEN is required}"
-GITHUB_REPO="${GITHUB_REPO:-cherish-zp/sheng-shou-ma-tou}"
+GITHUB_REPO="${GITHUB_REPO:-cherish-zp/shengShouMaTou}"
 GITEE_OWNER="${GITEE_OWNER:-princess-zp}"
-GITEE_REPO="${GITEE_REPO:-sheng-shou-ma-tou}"
+GITEE_REPO="${GITEE_REPO:-shengShouMaTou}"
 export GITEE_OWNER GITEE_REPO
 
 API="https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}"

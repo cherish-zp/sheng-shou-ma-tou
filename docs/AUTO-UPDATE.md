@@ -258,6 +258,6 @@ Gitee **常驻 `latest` release**（tag 名 `latest`，不存在则创建），�
 4. §5 踩坑清单过一遍（每条都是真实付出过代价的）
 5. 本地签名构建验证（`.sig` 生成）→ 发版 checklist → 发布
 
-> 本项目参考实现：`sheng-shou-ma-tou` 仓库
+> 本项目参考实现：`shengShouMaTou` 仓库
 > `.github/workflows/build.yml`、`src/composables/use-app-updater.ts`、
 > `src/components/update/*`、`scripts/sync-gitee-release.sh`

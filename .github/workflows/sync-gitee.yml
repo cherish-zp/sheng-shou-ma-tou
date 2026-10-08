@@ -24,7 +24,7 @@ jobs:
     env:
       GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
       GITEE_OWNER: princess-zp
-      GITEE_REPO: sheng-shou-ma-tou
+      GITEE_REPO: shengShouMaTou
       TAG: ${{ inputs.tag }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:

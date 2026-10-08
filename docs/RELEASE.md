@@ -74,9 +74,9 @@ Gitee 承担国内下载源与自动更新首选端点，但有两个硬约束�
 3. **验收 Gitee**：
    ```bash
    # 版本化 Release 附件齐全（除 >50MB 需补传的）
-   curl -s "https://gitee.com/api/v5/repos/princess-zp/sheng-shou-ma-tou/releases/tags/v0.3.0" | jq '.assets[].name'
+   curl -s "https://gitee.com/api/v5/repos/princess-zp/shengShouMaTou/releases/tags/v0.3.0" | jq '.assets[].name'
    # 自动更新端点可用（应返回 JSON，URL 全部指向 gitee.com）
-   curl -s "https://gitee.com/princess-zp/sheng-shou-ma-tou/releases/download/latest/latest.json"
+   curl -s "https://gitee.com/princess-zp/shengShouMaTou/releases/download/latest/latest.json"
    ```
 
 ### 1.3 手动触发一次构建（不发布）

@@ -44,8 +44,8 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDE2QTdGNUY4QTdCNzI4OUQKUldTZEtMZW4rUFduRnVBVGVaNnlaTlVIditRcDhVY2JKSVg3dG03K1RvK0hmS0tTamlWcFpQZUoK",
       "endpoints": [
-        "https://gitee.com/princess-zp/sheng-shou-ma-tou/releases/download/latest/latest.json",
-        "https://github.com/cherish-zp/sheng-shou-ma-tou/releases/latest/download/latest.json"
+        "https://gitee.com/princess-zp/shengShouMaTou/releases/download/latest/latest.json",
+        "https://github.com/cherish-zp/shengShouMaTou/releases/latest/download/latest.json"
       ]
     },
     "process": {}
