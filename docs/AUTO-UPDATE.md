@@ -1,28 +1,31 @@
-# 圣手码头自动更新方案（v0.3.0）
+# Tauri 2 应用自动更新方案（通用可复用）
 
-> 本文是该应用自动更新功能的完整方案，**通用可复用**：任何 Tauri 2 项目按此文档即可搭建同款。
-> 架构取向：官方 `tauri-plugin-updater` 内核 + dbx 式编排（双源端点、常驻 latest、启动/定时/手动检查）。
+> 本文档是**实战验证过的完整方案**——圣手码头 v0.3.0 发布过程踩坑 10+ 轮的全部经验固化。
+> 任何 Tauri 2 项目按本文档从零搭建，可以避开我们踩过的每一个坑。
+> 架构：官方 `tauri-plugin-updater` 内核 + dbx 式编排（双源端点、常驻 latest、静默/定时/手动检查）。
+
+---
 
 ## 0. 总览
 
 ```
-┌─ 发布（CI 自动）────────────────────────────────────────┐
-│ tag v* 推送 → tauri-action 四平台构建 + minisign 签名     │
-│   → GitHub Release（安装包 + .sig + latest.json）         │
-│   → sync-gitee job：附件同步 Gitee Release（中文名）       │
-│   → latest.json 重写 URL 为 Gitee 附件 → 上传 Gitee 常驻  │
-│     「latest」release（固定 URL，国内快）                  │
+┌─ 发布（CI 自动，tag 触发）───────────────────────────────┐
+│ tauri-action 四平台构建 + minisign 签名（.sig）            │
+│   → GitHub Release（安装包 + .sig + latest.json）          │
+│   → sync-gitee job：附件同步 Gitee（中文附件名）            │
+│   → latest.json 重写 URL 为 Gitee 直链 → 上传 Gitee 常驻   │
+│     「latest」release（固定 URL，国内可达的检查端点）        │
 └──────────────────────────────────────────────────────────┘
 ┌─ 应用内更新（用户侧）────────────────────────────────────┐
-│ 启动 8s 后静默检查 + 每 60 分钟 + 设置页手动               │
-│   → 发现新版本 → 底部横幅（版本号/说明/立即更新/忽略）      │
+│ 启动 8s 静默检查 + 每 60 分钟 + 设置页手动                  │
+│   → 新版本 → 底部横幅（版本/说明/立即更新/忽略此版本）       │
 │   → 下载（进度条）→ 「重启并更新」                          │
-│   macOS/Linux：官方原地替换 .app/AppImage 后自动重启        │
-│   Windows：NSIS 静默安装后自重启                            │
+│   macOS/Linux：官方原地替换 .app/AppImage + 自动重启        │
+│   Windows：NSIS 静默安装（passive）后自重启                 │
 └──────────────────────────────────────────────────────────┘
 ```
 
-## 1. 一次性准备（每个项目做一次）
+## 1. 一次性准备
 
 ### 1.1 生成签名密钥
 
@@ -30,20 +33,24 @@
 npx @tauri-apps/cli signer generate -w ~/my-keys/app.key -p ""
 ```
 
-- `*.key.pub` 的内容（去掉注释行）写入 `tauri.conf.json` → `plugins.updater.pubkey`
-- **私钥文件妥善备份**（丢失 = 已发布用户永远收不到更新）；base64 编码后存
-  GitHub Secrets `TAURI_SIGNING_PRIVATE_KEY`；密码（如有）存
-  `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+| 产物 | 用途 |
+|---|---|
+| `app.key`（**内容即单行 base64**，`dW50…` 开头） | base64 后存 GitHub Secrets `TAURI_SIGNING_PRIVATE_KEY`；文件本身永久备份 |
+| `app.key.pub` | 去掉注释行后的字符串写入 `tauri.conf.json` → `plugins.updater.pubkey` |
 
-### 1.2 配置 `tauri.conf.json`
+> ⚠️ **私钥即命脉**：丢失 = 已发布用户永远收不到更新。U 盘/密码管理器双重备份。
+> ⚠️ 建议私钥**带尾换行**存储（tauri signer 生成时自带）——CI 归一化逻辑依赖标准文件形态。
+
+### 1.2 `tauri.conf.json`
 
 ```jsonc
 {
-  "bundle": { "createUpdaterArtifacts": true },   // 产出 app.tar.gz/NSIS/AppImage + .sig
+  "version": "X.Y.Z",                          // 与 Cargo.toml/package.json 三处同步
+  "bundle": { "createUpdaterArtifacts": true }, // 产出 app.tar.gz/NSIS/AppImage + .sig
   "plugins": {
     "updater": {
       "pubkey": "<1.1 的公钥>",
-      "endpoints": [                               // 双源，依次回退
+      "endpoints": [                            // 双源，依次回退
         "https://gitee.com/<org>/<repo>/releases/download/latest/latest.json",
         "https://github.com/<org>/<repo>/releases/latest/download/latest.json"
       ]
@@ -54,70 +61,161 @@ npx @tauri-apps/cli signer generate -w ~/my-keys/app.key -p ""
 
 ### 1.3 依赖与权限
 
-- Rust：`tauri-plugin-updater`、`tauri-plugin-process`（relaunch 用）
+- Rust：`tauri-plugin-updater`、`tauri-plugin-process`（relaunch）
 - JS：`@tauri-apps/plugin-updater`、`@tauri-apps/plugin-process`
 - capabilities：`updater:default`、`process:allow-restart`
-- Rust lib：`.plugin(tauri_plugin_updater::Builder::new().build())` + `.plugin(tauri_plugin_process::init())`
+- lib.rs：`.plugin(tauri_plugin_updater::Builder::new().build())` + `.plugin(tauri_plugin_process::init())`
 
-### 1.4 CI（tauri-action）
+### 1.4 CI 签名（tauri-action）
 
-- env 注入 `TAURI_SIGNING_PRIVATE_KEY`（base64）+ `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
-- `tauri-action@v0` 自动：构建 → 签名（.sig）→ 生成 `latest.json` → 上传 Release
-  （`includeUpdaterJson` 默认开启）
+- Secrets：`TAURI_SIGNING_PRIVATE_KEY`（= `app.key` 文件内容的 **base64**）
+- ⚠️ CI 内必须 **base64 -d 解码为文件再传路径**——直接把 base64 字符串当私钥内容会
+  全平台签名失败（见踩坑 #1）；也不要以空串形式保留 APPLE_* 类未用 secrets（见踩坑 #2）
 
 ## 2. 双源与 Gitee 常驻 latest（国内可达的关键）
 
-tauri-action 生成的 `latest.json` 中 URL 指向 GitHub 附件——国内不可达。
-CI 的 sync-gitee job 在附件同步完成后追加：
+tauri-action 生成的 `latest.json` 中 URL 指向 GitHub 附件——**国内不可达**。
+CI 的 sync-gitee job 在附件同步后追加：
 
-1. 读取 `dist/latest.json`
-2. **URL 重写**：`https://github.com/<org>/<repo>/releases/download/<tag>/…`
-   → `https://gitee.com/<org>/<repo>/releases/download/latest/…`
-   （jq：`.platforms |= with_entries(.value.url |= sub(...))`）
-3. 上传重写后的 latest.json 到 Gitee **常驻 `latest` release**（不存在则创建；
-   先删同名旧附件再上传）
+1. 读 `dist/latest.json`
+2. **URL 重写**：GitHub 附件地址 → Gitee 常驻 `latest` release 的附件地址
+   （jq：`.platforms |= with_entries(.value.url |= sub("https://github.com/[^/]+/[^/]+/releases/download/[^/]+/"; "https://gitee.com/<org>/<repo>/releases/download/latest/"))`）
+3. 上传重写后的 latest.json 到 Gitee **常驻 `latest` release**（tag 名 `latest`，
+   不存在则创建；先删同名旧附件再上传——幂等）
 4. 同时把各平台安装包补传到 latest release（latest.json 的下载目标）
 
-这样 updater 首选端点（Gitee）返回的 latest.json 里全部是 Gitee 国内直链。
+> Gitee API token：`gitee.com/profile/personal_access_tokens` 生成，勾 **projects** 权限，
+> 存 GitHub Secrets `GITEE_TOKEN`。同步失败可本地跑 `scripts/sync-gitee-release.sh` 兜底。
 
 ## 3. 应用内更新（前端）
 
 `useAppUpdater` 状态机：
-`idle → checking → available → downloading(progress) → ready → relaunch`，另有
-`up-to-date` / `error`。
+`idle → checking → available → downloading(progress) → ready → relaunch`，另有 `up-to-date` / `error`。
 
 - 触发：启动延迟 8s 静默检查、每 60 分钟定时、设置页手动
-- 「忽略此版本」存 localStorage（`update.ignoredVersion`）
-- 下载：`update.downloadAndInstall(cb)`，Started/Progress/Finished 驱动进度条
-- 完成：`relaunch()`（Windows NSIS 自重启，无需手动调）
-- UI：底部横幅（可用/下载中/待重启/错误四态）+ 设置页「关于与更新」卡片
+- 「忽略此版本」存 localStorage；token 永不落盘（keychain/SQLite）
+- 下载进度：`downloadAndInstall(cb)` 的 Started/Progress/Finished 事件驱动
+- UI：底部横幅四态（可用/下载中/待重启/错误）+ 设置页「关于与更新」卡片
 
-关键实现文件（本项目）：
-`src/composables/use-app-updater.ts`、`src/components/update/update-banner.tsx`、
-`src/components/update/update-settings-section.tsx`
+## 4. 发版清单（Checklist）
 
-## 4. 发版清单
-
-1. 版本号三处同步（tauri.conf.json / Cargo.toml / package.json）+ Cargo.lock
+1. 版本号三处同步（tauri.conf.json / Cargo.toml / package.json）+ `cargo update -w`（Cargo.lock）
 2. CHANGELOG 条目
-3. commit + push + annotated tag `vX.Y.Z` + push tag
-4. CI 自动完成四平台构建/签名/发布 + Gitee 同步 + latest 维护
-5. 验证：GitHub Release 附件含 `.sig` 与 `latest.json`；Gitee latest release
-   的 latest.json URL 均为 Gitee 地址；老版本应用内「检查更新」能看到新版本
+3. commit + push + **annotated tag**（message 即发版说明）+ push tag
+4. CI 自动完成构建/签名/发布/Gitee 同步/latest 维护
+5. 验证：GitHub Release 附件含 `.sig` 与 `latest.json`；Gitee latest release 的
+   latest.json URL 均为 Gitee 地址；老版本应用内「检查更新」可见新版本
 
-## 5. 踩坑记录
+---
 
-- **不要以空串形式保留 APPLE_* secrets**：`${{ secrets.X }}` 在 secret 不存在时
-  仍注入空串，bundler 检测到变量即走签名导入，直接构建失败（1030/SecKeychain）
-- **cargo 增量编译不感知 dist 变化**：打包前 `cargo clean -p <app>` +
-  `rm -rf dist && npm run build`，构建后验证产物（体积/mtime）
-- **tauri 默认压缩嵌入 assets**：`strings <二进制> | grep <前端串>` 永远为 0，
-  不要据此判断包新旧；用 md5/体积/实际运行验证
-- **私钥即命脉**：丢失后只能换新密钥对 + 发「必须手动下载」的大版本
+## 5. 踩坑清单（全部实战踩过，逐条付出过代价）
 
-## 6. 可选增强（未实施）
+### #1 签名密钥：base64 层数与格式（两层坑）
+
+- **tauri signer 生成的 `.key` 文件内容本身就是 base64**（`dW50…` 开头）——
+  用户把它再 base64 一次 → **双层**。CI 解码一次后仍是 base64 → 校验失败。
+- **修复**：解码逻辑用**多轮自适应**（最多 3 层），解码到出现
+  `untrusted comment` 首行为止；三种输入（原文/单层/双层）全兼容。
+- **禁止**：固定"解码一次"的单层假设。
+
+### #2 未使用的签名 secrets：空串注入陷阱
+
+- secret 不存在时 `${{ secrets.X }}` 仍注入**空字符串** env——
+  bundler 检测到 `APPLE_CERTIFICATE` 变量存在（哪怕空）即走证书导入 →
+  `SecKeychainItemImport: parameters not valid` 全平台失败。
+- **修复**：未启用的签名 env **彻底删除**（不能注释留空串）；启用时才加回。
+
+### #3 CI 内 base64 解码：BSD 与 GNU 的差异
+
+- **macOS runner 的系统 `base64` 是 BSD 版**：`-d` 无效（要用 `-D`），报
+  `invalid argument`。Linux 的 GNU base64 才认 `-d`。
+- **修复**：解码/校验用 **python3**（三个 runner 都自带，行为一致）；
+  或按 runner 分支写 `-d`/`-D`。同理编码：GNU `-w 0` vs macOS `-b 0`。
+
+### #4 `/tmp` 路径跨进程不可见（Windows）
+
+- `shell: bash`（Git Bash）写的 `/tmp/x` 是 Git Bash 虚拟路径；
+  **Windows 原生进程（python3/node/tauri-action）解析为当前盘符 `\tmp\`** →
+  `FileNotFoundError`。
+- **修复**：跨进程传递的文件统一放 **`${{ runner.temp }}`**（GitHub 官方
+  跨进程一致目录），并在 bash/python/node 间用同一 env 变量传路径。
+
+### #5 bash 语法步骤缺 `shell: bash`（Windows 全挂）
+
+- Windows runner 默认 shell 是 **PowerShell**：bash 语法（`<` 重定向、
+  heredoc、`$(...)`、`\` 续行）全部 `ParserError`。
+- **修复**：所有含 bash 语法的 `run:` 步骤显式 **`shell: bash`**；
+  纯简单命令可留默认。
+
+### #6 GitHub 剥非 ASCII 附件名（平台限制）
+
+- 上传时附件名含非 ASCII（如 `圣手码头_0.3.0.dmg`）会被 GitHub **剥成 `_0.3.0.dmg`**；
+  事后用 API PATCH 改回中文名**也无效**（存储层行为）。
+- **修复**：附件名统一 **ASCII**（如 `ShengShouMaTou_0.3.0_aarch64.dmg`）；
+  应用内显示名保留中文；中文附件名放 Gitee（Gitee 支持，同步脚本上传时重命名）。
+- 事后补救：Release **编辑页**的附件名输入框可手动改（ASCII 名可稳定保存）。
+
+### #7 跨境大文件上传 Gitee 不可行
+
+- US runner → Gitee 传 81MB：curl 速度显示 1.6MB/s"正常"，但**进度 0% 且内部
+  计时 1h22m+**（链路拖慢），单次 30 分钟超时被掐 → 重试 → 再超时。
+- **修复**：sync 脚本对 **>50MB 附件跳过**并输出 `::notice` 提示本地兜底
+  （`scripts/sync-gitee-release.sh` 本地网络上传快）。
+- 小文件（≤50MB）正常上传 + 6 次重试 + 失败计数。
+
+### #8 QUIC 被拦网络（应用运行时 + 都要注意）
+
+- 部分国内网络拦截 UDP 443：cloudflared **auto 协议不降级**，永久卡
+  "等待连接"（quick tunnel 表现为边缘 530）。
+- **修复**：所有 cloudflared 调用**默认 `--protocol http2`**（TCP 443 全网可达）。
+
+### #9 minisign 密钥文件的尾换行
+
+- tauri 生成的 `.key`（base64 形式）解码出的 minisign 原文**以换行结尾**；
+  重新编码时若丢尾换行，解码字节与 tauri 生成的 `.key` 差 2 字节 →
+  **与内嵌公钥不配对**（实测 md5 对比抓到）。
+- **修复**：raw 分支编码前 `printf '%s\n'`（补标准尾换行）。
+
+### #10 诊断日志的可靠性
+
+- `gh run view --log-failed` 对真实失败可能**返回空**（实测）。
+- **修复**：诊断 Issue 用 **`gh api repos/{repo}/actions/jobs/{id}/logs`**
+  REST 端点拉日志尾部（注意：job 运行中或刚结束时可能 404，需在失败后
+  稍候拉取）；同时保留 --log-failed 后备。
+
+### #11 关窗 ≠ 退出（验证时的头号错觉）
+
+- macOS 关闭窗口只是关窗口，应用仍在后台运行——用户"打开"看到的
+  可能是**内存里的旧界面**，新装的代码永远不生效。
+- **验证前必须**：`pgrep -fl "<dev二进制名>|<app名>"` 双名排查（dev 二进制名
+  可能与产品名不同）+ `osascript quit` 或 pkill 全清，再启动新版。
+
+### #12 tauri build 的前端嵌入缓存
+
+- `generate_context!` 宏在编译期嵌入 `dist/`，**cargo 增量编译不感知
+  dist 内容变化**（touch 也不可靠）。
+- **修复**：正式打包前 `cargo clean -p <app>` + `rm -rf dist && npm run build`
+  + dist 特征串验证 → 构建后验证二进制（体积/md5 差异，**不要用 strings
+  grep 前端内容**——assets 压缩嵌入，永远搜不到）。
+
+---
+
+## 6. 可选增强（未实施，按需）
 
 - Windows 便携版（zip 单 exe）：移植 dbx `update_portable.rs`
   （minisign 验签 + manifest SHA-256 + PowerShell 备份-替换-回滚）
 - 下载磁盘缓存与断点恢复；15s 停滞自动换源；系统代理透传
-- 设置页下载源切换（GitHub / Gitee）
+- 设置页下载源切换（GitHub / Gitee）；增量更新
+
+## 7. 快速接入清单（别的项目照抄）
+
+1. §1.1 生成密钥 → §1.2 配置 → §1.3 依赖 → §1.4 CI 签名
+2. §2 双源与 Gitee latest 维护（照抄 build.yml 的 sync-gitee job）
+3. §3 前端 composable + 横幅 + 设置页（照抄本项目
+   `src/composables/use-app-updater.ts`、`src/components/update/*`）
+4. §5 踩坑清单过一遍（每条都是真实付出过代价的）
+5. 本地签名构建验证（`.sig` 生成）→ 发版 checklist → 发布
+
+> 本项目参考实现：`sheng-shou-ma-tou` 仓库
+> `.github/workflows/build.yml`、`src/composables/use-app-updater.ts`、
+> `src/components/update/*`、`scripts/sync-gitee-release.sh`
