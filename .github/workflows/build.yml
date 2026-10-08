@@ -151,20 +151,24 @@ jobs:
           secret = open("/tmp/secret.raw").read().strip()
           def is_minisign_key_file(content):
               return content.split(b"\n", 1)[0].startswith(b"untrusted comment")
-          raw = None
-          try:
-              candidate = base64.b64decode(secret)
+          # Accept up to double-base64: the .key file itself is base64 of the
+          # minisign key, so a user base64-ing it again yields two layers.
+          for _round in range(3):
+              try:
+                  candidate = base64.b64decode(secret)
+              except Exception:
+                  break
               if is_minisign_key_file(candidate):
-                  raw = candidate
-          except Exception:
-              pass
-          if raw is None and is_minisign_key_file(secret.encode()):
-              raw = secret.encode()
-          if raw is None:
-              print("::error::TAURI_SIGNING_PRIVATE_KEY is neither a raw minisign key nor its base64. Expected the .key file content (starts with dW50...) or the raw key file.")
-              sys.exit(1)
-          open("/tmp/updater-signing.key", "wb").write(secret.encode())
-          print("updater signing key normalized and verified (base64 form)")
+                  print(f"minisign key recognized after {_round} extra decode round(s)")
+                  open("/tmp/updater-signing.key", "wb").write(secret.encode())
+                  sys.exit(0)
+              # Not a key file yet — peel one more base64 layer and retry.
+              try:
+                  secret = base64.b64decode(secret).decode()
+              except Exception:
+                  break
+          print("::error::TAURI_SIGNING_PRIVATE_KEY could not be normalized. Expected the .key file content (dW50... base64), its base64, or the raw minisign key.")
+          sys.exit(1)
           PY
 
       - name: Build & release
