@@ -141,21 +141,29 @@ jobs:
           # single-line base64 of the minisign key (= the content of the
           # .key file, dW50...-style). Accept BOTH the raw minisign key file
           # and that base64 from the secret; normalize to the base64 form.
-          SECRET="${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}"
-          if printf '%s' "$SECRET" | head -c 18 | grep -q "untrusted comment"; then
-            echo "secret is a raw minisign key file — encoding to single-line base64"
-            # Trailing newline is part of the canonical minisign key file;
-            # without it the decoded key differs from the tauri-generated
-            # .key and will NOT pair with the embedded pubkey.
-            printf '%s\n' "$SECRET" | base64 -w 0 > /tmp/updater-signing.key
-          else
-            echo "secret assumed to be the .key base64 form — stripping whitespace"
-            printf '%s' "$SECRET" | tr -d '\n\r ' > /tmp/updater-signing.key
-          fi
-          # Validate: must decode into a minisign key file.
-          base64 -d /tmp/updater-signing.key | head -1 | grep -q "untrusted comment" \
-            || { echo "::error::TAURI_SIGNING_PRIVATE_KEY is neither a raw minisign key nor its base64. Expected the content of the .key file (starts with dW50...) or the raw key file."; exit 1; }
-          echo "updater signing key normalized and verified"
+          # NOTE: decoding uses python3 because the system `base64 -d` is
+          # BSD-flavored on macOS runners (-D, not -d) and fails there.
+          printf '%s' "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" > /tmp/secret.raw
+          python3 - << 'PY'
+          import base64, sys
+          secret = open("/tmp/secret.raw").read().strip()
+          def is_minisign_key_file(content):
+              return content.split(b"\n", 1)[0].startswith(b"untrusted comment")
+          raw = None
+          try:
+              candidate = base64.b64decode(secret)
+              if is_minisign_key_file(candidate):
+                  raw = candidate
+          except Exception:
+              pass
+          if raw is None and is_minisign_key_file(secret.encode()):
+              raw = secret.encode()
+          if raw is None:
+              print("::error::TAURI_SIGNING_PRIVATE_KEY is neither a raw minisign key nor its base64. Expected the .key file content (starts with dW50...) or the raw key file.")
+              sys.exit(1)
+          open("/tmp/updater-signing.key", "wb").write(secret.encode())
+          print("updater signing key normalized and verified (base64 form)")
+          PY
 
       - name: Build & release
         uses: tauri-apps/tauri-action@v0
