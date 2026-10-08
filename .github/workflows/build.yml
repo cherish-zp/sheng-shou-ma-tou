@@ -144,6 +144,8 @@ jobs:
           # NOTE: decoding uses python3 because the system `base64 -d` is
           # BSD-flavored on macOS runners (-D, not -d) and fails there.
           printf '%s' "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" > /tmp/secret.raw
+          # Fingerprint (no plaintext leak): length + md5 + first 6 chars
+          echo "secret fingerprint: len=$(wc -c < /tmp/secret.raw | tr -d ' ') md5=$(md5sum /tmp/secret.raw | cut -c1-12) prefix=$(head -c 6 /tmp/secret.raw)"
           python3 - << 'PY'
           import base64, sys
           secret = open("/tmp/secret.raw").read().strip()
