@@ -30,6 +30,7 @@ jobs:
     steps:
       - name: Sync assets to Gitee release
         continue-on-error: true
+        shell: bash
         run: |
           set -euo pipefail
           API="https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}"

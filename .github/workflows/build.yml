@@ -136,6 +136,7 @@ jobs:
         run: npm ci
 
       - name: Normalize updater signing key
+        shell: bash
         run: |
           # tauri's TAURI_SIGNING_PRIVATE_KEY (string form) accepts ONLY the
           # single-line base64 of the minisign key (= the content of the
@@ -222,6 +223,7 @@ jobs:
       # 未登录访客不可见，Issue 让远程协作者无需登录即可定位）
       - name: Open diagnostic issue on failure
         if: ${{ failure() }}
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_JOB_ID: ${{ github.job }}
@@ -311,6 +313,7 @@ jobs:
 
       - name: Sync assets to Gitee release
         if: env.GITEE_TOKEN != ''
+        shell: bash
         continue-on-error: true
         env:
           # gh CLI 需要显式 token（Actions 不会自动注入环境变量）
