@@ -65,6 +65,11 @@ jobs:
             if echo "$EXISTING" | grep -qx "$NAME"; then
               echo "skip existing: $NAME"; continue
             fi
+            SIZE_MB=$(du -m "$f" | cut -f1)
+            if [ "$SIZE_MB" -gt 50 ]; then
+              echo "::notice::$NAME is ${SIZE_MB}MB — too large for cross-border upload; sync locally"
+              continue
+            fi
             # 大文件跨境上传：-S 显示错误、单次上限 60 分钟、重试 6 次
             UPLOADED=false
             for i in 1 2 3 4 5 6; do
