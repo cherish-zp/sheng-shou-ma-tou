@@ -62,6 +62,7 @@
     "deleteFailed": "Failed to delete",
     "authTooltip": "Basic auth · {{username}}",
     "allowlistTooltip": "IP allowlist · {{n}} rules",
+    "autoStart": "Auto-start",
     "connActive": "active connections",
     "editDisabledCfNamed": "Fixed-hostname tunnels cannot be edited. Delete and recreate to change the setup.",
     "deleteCfNamedHint": "The remote tunnel and DNS record remain in your Cloudflare account — clean up in the Cloudflare dashboard (one-click cleanup is coming in a later version).",
@@ -122,6 +123,8 @@
     "hostRequired": "Enter a local host",
     "advanced": "Advanced",
     "advancedActive": "Active",
+    "autoStart": "Connect automatically on launch",
+    "autoStartHint": "Connect this tunnel automatically at login or when the app starts",
     "auth": {
       "title": "Access authentication",
       "description": "Require a username and password to open this tunnel (HTTP Basic Auth)",
@@ -515,6 +518,8 @@
     "faq3A": "A DNS record for that subdomain already exists and points elsewhere. Pick another subdomain, or delete the old record in the Cloudflare dashboard first.",
     "faq4Q": "The tunnel never connects?",
     "faq4A": "Cloudflare tunnels need outbound access to port 7844 (QUIC/HTTP2). Some networks block UDP; the app already defaults to the more compatible HTTP2 protocol.",
+    "faq5Q": "Does closing the window quit the app?",
+    "faq5A": "No. Closing the window minimizes the app to the system tray and tunnels keep running; to quit completely, use “Quit” in the tray menu.",
     "editUpdateHostname": "Update fixed hostname",
     "storedToken": "Stored API token",
     "revealToken": "Show/hide token"

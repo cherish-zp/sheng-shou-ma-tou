@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { useTheme } from "next-themes";
+import { getVersion } from "@tauri-apps/api/app";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import {
   ArrowRight,
@@ -91,9 +92,17 @@ export function SettingsPage() {
   const { theme, setTheme } = useTheme();
   const { binaryStatus, installing } = useTunnelStore();
   const updater = useAppUpdater();
+  // Real app version from the Tauri runtime (tauri.conf.json), not hardcoded.
+  const [appVersion, setAppVersion] = useState("");
 
   useEffect(() => {
     void refreshBinaryStatus();
+  }, []);
+
+  useEffect(() => {
+    getVersion()
+      .then(setAppVersion)
+      .catch(() => setAppVersion(""));
   }, []);
 
   return (
@@ -105,7 +114,7 @@ export function SettingsPage() {
       </header>
 
       <div className="mt-8 flex flex-col gap-6">
-      <UpdateSettingsSection currentVersion="0.3.0" updater={updater} />
+        <UpdateSettingsSection currentVersion={appVersion} updater={updater} />
         {/* Appearance */}
         <Card>
           <CardHeader>

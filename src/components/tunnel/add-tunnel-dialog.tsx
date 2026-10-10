@@ -168,6 +168,9 @@ export function AddTunnelDialog({
   const [authPassword, setAuthPassword] = useState("");
   const [passwordError, setPasswordError] = useState(false);
   const [allowlistText, setAllowlistText] = useState("");
+  // Auto-connect this tunnel when the app launches (honoured by the backend
+  // at startup — no frontend involvement needed).
+  const [autoStart, setAutoStart] = useState(false);
 
   // Reset (create) or prefill (edit) whenever the dialog opens.
   useEffect(() => {
@@ -194,6 +197,7 @@ export function AddTunnelDialog({
       // Never prefill the stored password; empty means "keep it".
       setAuthPassword("");
       setAllowlistText((editTunnel.ipAllowlist ?? []).join("\n"));
+      setAutoStart(Boolean(editTunnel.autoStart));
     } else {
       setStep(1);
       setTunnelType("http");
@@ -204,6 +208,7 @@ export function AddTunnelDialog({
       setAuthUsername("admin");
       setAuthPassword("");
       setAllowlistText("");
+      setAutoStart(false);
       // Load deployed servers to offer the self-hosted channel.
       api
         .listServers()
@@ -311,6 +316,7 @@ export function AddTunnelDialog({
           name: name.trim() || `port-${parsedPort}`,
           localHost: localHost.trim(),
           localPort: parsedPort,
+          autoStart,
           auth: nextAuth,
           ipAllowlist: parsedAllowlist,
         };
@@ -352,7 +358,7 @@ export function AddTunnelDialog({
               : "bore",
           localHost: localHost.trim() || "127.0.0.1",
           localPort: parsedPort,
-          autoStart: false,
+          autoStart,
           createdAt: new Date().toISOString(),
           ...(useFrp
             ? {
@@ -694,6 +700,26 @@ export function AddTunnelDialog({
                 disabled={!localTargetReady}
                 disabledReason={t("add.cf.needLocalFirst")}
               />
+            ) : null}
+
+            {/* Auto-connect on app launch. The fixed-hostname flow keeps its
+                own copy inside the bind panel, so hide this one there. */}
+            {!useCfNamed ? (
+              <div className="flex items-start justify-between gap-3 rounded-lg border bg-muted/40 px-3 py-2.5">
+                <div className="flex flex-col gap-0.5">
+                  <Label htmlFor="tunnel-autostart">
+                    {t("add.autoStart")}
+                  </Label>
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    {t("add.autoStartHint")}
+                  </p>
+                </div>
+                <Switch
+                  id="tunnel-autostart"
+                  checked={autoStart}
+                  onCheckedChange={setAutoStart}
+                />
+              </div>
             ) : null}
 
             {/* Advanced: access auth + IP allowlist. Hidden for fixed-hostname

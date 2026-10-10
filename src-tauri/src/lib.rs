@@ -30,13 +30,29 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            None,
+            // 开机自启的实例带 --hidden 启动：窗口保持隐藏，仅托盘常驻。
+            Some(vec!["--hidden"]),
         ))
         .setup(|app| {
             #[cfg(desktop)]
             tray::setup(app.handle())?;
             commands::init_runtime(app.handle())?;
+            // 主窗口默认隐藏（tauri.conf.json visible: false）：手动启动时
+            // 显示并聚焦，保持原有关闭前的体验；--hidden（开机自启）保持隐藏。
+            if !std::env::args().any(|arg| arg == "--hidden") {
+                tray::show_main_window(app.handle());
+            }
             Ok(())
+        })
+        // 关闭主窗口 = 隐藏到托盘，不退出应用；退出只走托盘菜单的
+        // app.exit(0)（不经过 CloseRequested，RunEvent::Exit 清理不受影响）。
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() == "main" {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             commands::list_tunnels,

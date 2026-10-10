@@ -27,6 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { cn, errorMessage } from "@/lib/utils";
 import { api } from "@/lib/tauri";
 import { mergeState, upsertConfig } from "@/store/tunnel-store";
@@ -77,6 +78,9 @@ export function CfBindFlow({
   const [zoneId, setZoneId] = useState("");
   const [subdomain, setSubdomain] = useState("");
   const [subdomainTouched, setSubdomainTouched] = useState(false);
+
+  // Auto-connect the provisioned tunnel when the app launches.
+  const [autoStart, setAutoStart] = useState(false);
 
   const [phase, setPhase] = useState<ProvisionPhase>("idle");
   const routeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -154,7 +158,7 @@ export function CfBindFlow({
         subdomain,
         localHost,
         localPort,
-        autoStart: false,
+        autoStart,
       });
       if (routeTimer.current) clearTimeout(routeTimer.current);
       setPhase("start");
@@ -416,6 +420,22 @@ export function CfBindFlow({
                         {localHost}:{localPort}
                       </span>
                     </div>
+                  </div>
+                  {/* Auto-connect the provisioned tunnel on app launch */}
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex flex-col gap-0.5">
+                      <Label htmlFor="cf-autostart">
+                        {t("add.autoStart")}
+                      </Label>
+                      <p className="text-xs leading-relaxed text-muted-foreground">
+                        {t("add.autoStartHint")}
+                      </p>
+                    </div>
+                    <Switch
+                      id="cf-autostart"
+                      checked={autoStart}
+                      onCheckedChange={setAutoStart}
+                    />
                   </div>
                   <Button
                     type="button"

@@ -247,19 +247,43 @@ pub fn create_tunnel(
     Ok(config)
 }
 
+/// 新旧配置是否仅 `auto_start` 不同（两边序列化后把 autoStart 归一成相同值
+/// 再比较）。true 表示运行中的隧道无需因本次更新而停止。序列化失败按
+/// 「有变更」处理，回退到原有 stop 行为。
+fn equal_ignoring_auto_start(old: &TunnelConfig, new: &TunnelConfig) -> bool {
+    let (Ok(mut a), Ok(mut b)) = (serde_json::to_value(old), serde_json::to_value(new)) else {
+        return false;
+    };
+    let normalize = |v: &mut serde_json::Value| {
+        if let Some(obj) = v.as_object_mut() {
+            obj.insert("autoStart".into(), serde_json::Value::Bool(false));
+        }
+    };
+    normalize(&mut a);
+    normalize(&mut b);
+    a == b
+}
+
 #[tauri::command]
 pub async fn update_tunnel(
     state: State<'_, AppState>,
     mut config: TunnelConfig,
 ) -> Result<TunnelConfig, String> {
     validate_and_fill(&mut config)?;
+    // store.update 会覆盖旧配置，先取出来比较。
+    let old = state.store.get(&config.id)?;
+    let auto_start_only = old
+        .as_ref()
+        .map(|old| equal_ignoring_auto_start(old, &config))
+        .unwrap_or(false);
     if !state.store.update(config.clone())? {
         return Err(format!("tunnel not found: {}", config.id));
     }
     // A running tunnel keeps using the old config until restarted; stop it so
-    // the change takes effect on the next explicit start.
+    // the change takes effect on the next explicit start. 仅切换 auto_start
+    // 标记时不打断运行中的隧道。
     if let Some(st) = state.engine.snapshot(&config.id) {
-        if !matches!(st.status, TunnelStatus::Stopped | TunnelStatus::Error) {
+        if !auto_start_only && !matches!(st.status, TunnelStatus::Stopped | TunnelStatus::Error) {
             let _ = state.engine.stop(&config.id).await;
         }
     }
@@ -615,4 +639,53 @@ pub fn cf_deprovision(state: State<'_, AppState>, id: String, delete_dns: bool) 
     crate::cloudflare::delete_stored_tokens(&id);
     state.store.remove(&id)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample(id: &str) -> TunnelConfig {
+        TunnelConfig {
+            id: id.to_string(),
+            name: format!("test-{id}"),
+            tunnel_type: TunnelType::Http,
+            backend: Backend::Cloudflare,
+            local_host: "127.0.0.1".to_string(),
+            local_port: 8080,
+            auto_start: false,
+            created_at: "2026-10-10T00:00:00+00:00".to_string(),
+            server_id: None,
+            subdomain: None,
+            remote_port: None,
+            auth: None,
+            ip_allowlist: Vec::new(),
+            cf_tunnel_id: None,
+            cf_hostname: None,
+            cf_account_id: None,
+        }
+    }
+
+    #[test]
+    fn only_auto_start_change_skips_stop() {
+        let mut new = sample("t1");
+        new.auto_start = true;
+        assert!(equal_ignoring_auto_start(&sample("t1"), &new));
+    }
+
+    #[test]
+    fn other_field_change_requires_stop() {
+        let mut new = sample("t1");
+        new.local_port = 9090;
+        assert!(!equal_ignoring_auto_start(&sample("t1"), &new));
+        let mut renamed = sample("t1");
+        renamed.name = "renamed".into();
+        assert!(!equal_ignoring_auto_start(&sample("t1"), &renamed));
+    }
+
+    #[test]
+    fn identical_configs_are_auto_start_only() {
+        // 完全相同也走「不打断」分支：对运行中的隧道无副作用。
+        assert!(equal_ignoring_auto_start(&sample("t1"), &sample("t1")));
+    }
 }

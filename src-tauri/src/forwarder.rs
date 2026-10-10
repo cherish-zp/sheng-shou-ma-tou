@@ -419,14 +419,10 @@ async fn udp_reply_loop(
     upstream: Arc<tokio::net::UdpSocket>,
 ) {
     let mut buf = vec![0u8; UDP_DATAGRAM_CAP];
-    loop {
-        match timeout(UDP_SESSION_TIMEOUT, upstream.recv(&mut buf)).await {
-            Ok(Ok(n)) => {
-                if listener.send_to(&buf[..n], peer).await.is_ok() {
-                    fwd.bytes_out.fetch_add(n as u64, Ordering::SeqCst);
-                }
-            }
-            Ok(Err(_)) | Err(_) => break, // upstream error or idle timeout
+    // 上游错误或空闲超时都会结束循环（Err 分支退出）。
+    while let Ok(Ok(n)) = timeout(UDP_SESSION_TIMEOUT, upstream.recv(&mut buf)).await {
+        if listener.send_to(&buf[..n], peer).await.is_ok() {
+            fwd.bytes_out.fetch_add(n as u64, Ordering::SeqCst);
         }
     }
 }

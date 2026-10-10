@@ -62,6 +62,7 @@
     "deleteFailed": "删除失败",
     "authTooltip": "访问鉴权 · {{username}}",
     "allowlistTooltip": "IP 白名单 · {{n}} 条规则",
+    "autoStart": "自启",
     "connActive": "活跃连接",
     "editDisabledCfNamed": "固定域名隧道不支持编辑。修改配置需删除后重新创建。",
     "deleteCfNamedHint": "云端隧道与 DNS 记录仍保留在 Cloudflare，可前往 Cloudflare Dashboard 清理（后续版本将支持一键清理）。",
@@ -122,6 +123,8 @@
     "hostRequired": "请输入本地地址",
     "advanced": "高级",
     "advancedActive": "已启用",
+    "autoStart": "应用启动时自动连接",
+    "autoStartHint": "开机或启动应用时自动连接该隧道",
     "auth": {
       "title": "访问鉴权",
       "description": "开启后访问该隧道需要输入用户名和密码（HTTP Basic Auth）",
@@ -515,6 +518,8 @@
     "faq3A": "该子域名的 DNS 记录已存在且指向其他隧道。换一个子域名，或在 Cloudflare 后台删除旧记录后重试。",
     "faq4Q": "隧道一直连不上？",
     "faq4A": "Cloudflare 隧道需要本机能够出站访问 7844 端口（QUIC/HTTP2）。部分网络会拦截 UDP，应用已默认使用更兼容的 HTTP2 协议。",
+    "faq5Q": "关闭窗口会退出应用吗？",
+    "faq5A": "不会。关闭窗口会最小化到系统托盘，隧道保持运行；完全退出请使用托盘菜单中的『退出』。",
     "editUpdateHostname": "更新固定域名",
     "storedToken": "已保存的 API Token",
     "revealToken": "查看/隐藏 Token"

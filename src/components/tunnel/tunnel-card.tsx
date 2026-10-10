@@ -188,6 +188,14 @@ export function TunnelCard({ tunnel, state, onEdit, onShowLogs, onDelete }: Tunn
                   ? t("card.backendBore")
                   : t("card.backendFrp")}
           </Badge>
+          {tunnel.autoStart ? (
+            <Badge
+              variant="outline"
+              className="text-[11px] text-muted-foreground"
+            >
+              {t("card.autoStart")}
+            </Badge>
+          ) : null}
 
           {/* Access control markers */}
           {tunnel.auth ? (

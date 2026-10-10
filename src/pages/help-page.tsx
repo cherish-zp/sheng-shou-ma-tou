@@ -38,6 +38,7 @@ export function HelpPage() {
     { q: t("help.faq2Q"), a: t("help.faq2A") },
     { q: t("help.faq3Q"), a: t("help.faq3A") },
     { q: t("help.faq4Q"), a: t("help.faq4A") },
+    { q: t("help.faq5Q"), a: t("help.faq5A") },
   ];
 
   return (
